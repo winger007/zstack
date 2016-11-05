@@ -139,4 +139,12 @@ public class BackupStorageAO {
     public void setStatus(BackupStorageStatus status) {
         this.status = status;
     }
+
+    public Boolean getImportImageInfo() {
+        return importImageInfo;
+    }
+
+    public void setImportImageInfo(Boolean importImageInfo) {
+        this.importImageInfo = importImageInfo;
+    }
 }

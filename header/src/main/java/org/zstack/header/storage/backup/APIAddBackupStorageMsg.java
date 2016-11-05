@@ -27,10 +27,21 @@ public abstract class APIAddBackupStorageMsg extends APICreateMessage {
      * @choices - SftpBackupStorage
      * - SimulatorBackupStorage
      */
-    private String type;
+	private String type;
 
-    public APIAddBackupStorageMsg() {
-    }
+	@APIParam(required = false)
+	private boolean importImageInfo;
+
+	public boolean isImportImageInfo() {
+		return importImageInfo;
+	}
+
+	public void setImportImageInfo(boolean importImageInfo) {
+		this.importImageInfo = importImageInfo;
+	}
+
+	public APIAddBackupStorageMsg() {
+	}
 
     public String getUrl() {
         return url;

@@ -192,6 +192,7 @@ public class BackupStorageManagerImpl extends AbstractService implements BackupS
 
         tagMgr.createTagsFromAPICreateMessage(msg, inv.getUuid(), BackupStorageVO.class.getSimpleName());
 
+
         final APIAddBackupStorageEvent evt = new APIAddBackupStorageEvent(msg.getId());
         ConnectBackupStorageMsg cmsg = new ConnectBackupStorageMsg();
         cmsg.setNewAdd(true);
@@ -203,6 +204,17 @@ public class BackupStorageManagerImpl extends AbstractService implements BackupS
                 if (reply.isSuccess()) {
                     evt.setInventory(factory.reload(inv.getUuid()));
                     bus.publish(evt);
+
+                    for (AddBackupStorageExtensionPoint ext : pluginRgty.getExtensionList(AddBackupStorageExtensionPoint.class)) {
+                        ext.afterAddBackupStorage(inv);
+                    }
+                   // CollectionUtils.safeForEach(pluginRgty.getExtensionList(AddBackupStorageExtensionPoint.class), new ForEachFunction<AddBackupStorageExtensionPoint>() {
+                   //     @Override
+                   //     public void run(AddBackupStorageExtensionPoint ext) {
+                   //         ext.afterAddBackupStorage(inv);
+                   //     }
+                   // });
+
                 } else {
                     dbf.removeByPrimaryKey(inv.getUuid(), BackupStorageVO.class);
                     evt.setErrorCode(errf.instantiateErrorCode(SysErrors.CREATE_RESOURCE_ERROR, reply.getError()));

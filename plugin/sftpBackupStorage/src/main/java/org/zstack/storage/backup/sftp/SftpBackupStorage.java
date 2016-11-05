@@ -42,7 +42,7 @@ public class SftpBackupStorage extends BackupStorageBase {
     private static final CLogger logger = Utils.getLogger(SftpBackupStorage.class);
 
     @Autowired
-    private RESTFacade restf;
+    protected RESTFacade restf;
     @Autowired
     private AnsibleFacade asf;
     @Autowired
@@ -56,7 +56,8 @@ public class SftpBackupStorage extends BackupStorageBase {
         super(vo);
     }
 
-    private String buildUrl(String subPath) {
+
+    public String buildUrl(String subPath) {
         UriComponentsBuilder ub = UriComponentsBuilder.newInstance();
         ub.scheme(SftpBackupStorageGlobalProperty.AGENT_URL_SCHEME);
         if (CoreGlobalProperty.UNIT_TEST_ON) {
@@ -98,8 +99,8 @@ public class SftpBackupStorage extends BackupStorageBase {
             }
 
             DownloadCmd cmd = new DownloadCmd();
-            cmd.setUrl(url);
             cmd.setUuid(uuid);
+            cmd.setUrl(url);
             cmd.setUrlScheme(scheme);
             cmd.setInstallPath(installPath);
             cmd.setTimeout(timeoutManager.getTimeout(cmd.getClass(), "3h"));
@@ -496,4 +497,7 @@ public class SftpBackupStorage extends BackupStorageBase {
 
         return vo;
     }
+
+
+
 }
