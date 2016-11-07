@@ -69,14 +69,13 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
         q.setParameter("uuid", image.getUuid());
         List<ImageVO> ImageInfo = q.getResultList();
         return JSONObjectUtil.toJsonString(ImageInfo.get(0));
+        //return JSONObjectUtil.toJsonString(ImageInfo);
     }
 
-    //private  String RestoreImagesMetadataToDatabase(String imagesInfo) {
-    //    String[] metaData = imagesInfo.split("\n");
-    //
-    //    JSONObjectUtil.toObject(metaData)
-    //
-    //}
+    private void RestoreImagesMetadataToDatabase(String imageInfo) {
+        ImageVO imgvo = (ImageVO)JSONObjectUtil.toObject(imageInfo, ImageVO.class);
+        dbf.persist(imgvo);
+    }
 
 
     private String getBsUrlFromImageInventory(ImageInventory img) {
@@ -268,6 +267,7 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
                                                 trigger.fail(ec);
                                             } else {
                                                 logger.info("Create image metadata file successfully");
+                                                dumpAllImageDataToMetaDataFile(img);
                                                 trigger.next();
                                             }
                                         }
@@ -278,9 +278,9 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
                                         }
                                     });
 
-                            dumpAllImageDataToMetaDataFile(img);
                         } else {
                             dumpImageDataToMetaDataFile(img);
+                            trigger.next();
                         }
 
 
@@ -299,13 +299,6 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
 
             }).start();
     }
-
-
-
-
-
-        //should use flow
-
 
     @Override
     public void failedToAddImage(ImageInventory img, ErrorCode err) {
@@ -338,7 +331,7 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
                             if (!rsp.isSuccess()) {
                                 logger.error(String.format("Get images metadata: %s failed", rsp.getImagesMetaData()));
                             } else {
-                                //RestoreImagesMetadataToDatabase(rsp.getImagesMetaData());
+                                RestoreImagesMetadataToDatabase(rsp.getImagesMetaData());
                                 logger.error(String.format("Get images metadata: %s failed", rsp.getImagesMetaData()));
                             }
                         }
