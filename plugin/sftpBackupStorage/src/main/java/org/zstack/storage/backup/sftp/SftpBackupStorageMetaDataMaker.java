@@ -1,5 +1,6 @@
 package org.zstack.storage.backup.sftp;
 
+import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.util.UriComponentsBuilder;
 import org.zstack.core.CoreGlobalProperty;
@@ -24,6 +25,7 @@ import org.zstack.utils.gson.JSONObjectUtil;
 import org.zstack.utils.logging.CLogger;
 
 import javax.persistence.Query;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -56,25 +58,47 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
         return ub.build().toUriString();
     }
 
-    private String getAllImageVOInfo () {
+    private String getAllImageVOInfo() {
         String sql = "select image from ImageVO image";
         Query q = dbf.getEntityManager().createQuery(sql);
         List<ImageVO> allImageInfo = q.getResultList();
         return JSONObjectUtil.toJsonString(allImageInfo);
     }
 
+    private String getAllImageBackupStorageRefVOInfo() {
+        String sql = "select ref from ImageBackupStorageRefVO ref";
+        Query q = dbf.getEntityManager().createQuery(sql);
+        List<ImageVO> allRefInfo = q.getResultList();
+        return JSONObjectUtil.toJsonString(allRefInfo);
+    }
+
     private  String getImageVOInfo(ImageInventory image) {
         String sql = "select image from ImageVO image where image.uuid =:uuid ";
         Query q = dbf.getEntityManager().createQuery(sql);
         q.setParameter("uuid", image.getUuid());
-        List<ImageVO> ImageInfo = q.getResultList();
-        return JSONObjectUtil.toJsonString(ImageInfo.get(0));
-        //return JSONObjectUtil.toJsonString(ImageInfo);
+        List<ImageVO> imageInfo = q.getResultList();
+        return JSONObjectUtil.toJsonString(imageInfo.get(0));
+    }
+
+    private  String getImageBackupStorageRefVOInfo(ImageInventory image) {
+        String sql = "select ref from ImageBackupStorageRefVO ref where image.uuid =:uuid ";
+        Query q = dbf.getEntityManager().createQuery(sql);
+        q.setParameter("uuid", image.getUuid());
+        List<ImageVO> refInfo = q.getResultList();
+        return JSONObjectUtil.toJsonString(refInfo.get(0));
     }
 
     private void RestoreImagesMetadataToDatabase(String imageInfo) {
-        ImageVO imgvo = (ImageVO)JSONObjectUtil.toObject(imageInfo, ImageVO.class);
-        dbf.persist(imgvo);
+        String[] metadatas =  imageInfo.split("\n");
+        List<ImageVO> imagesVO = new ArrayList<>();
+        for ( String metadata : metadatas) {
+            JSONObject tmpMetaData = JSONObjectUtil.toObject(metadata, JSONObject.class);
+            tmpMetaData.getJSONArray("")
+
+            ImageVO imageVO = JSONObjectUtil.toObject(metadata, ImageVO.class);
+            imagesVO.add(imageVO);
+        }
+        dbf.persist(imagesVO);
     }
 
 
@@ -122,6 +146,7 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
 
     private  void dumpImageDataToMetaDataFile(ImageInventory img) {
         SftpBackupStorageCommands.DumpImageInfoToMetaDataFileCmd dumpCmd = new SftpBackupStorageCommands.DumpImageInfoToMetaDataFileCmd();
+        String metaData = getImageVOInfo(img) + "\n" + getImageBackupStorageRefVOInfo(img);
         dumpCmd.setImageMetaData(getImageVOInfo(img));
         dumpCmd.setBackupStoragePath(getBsUrlFromImageInventory(img));
         restf.asyncJsonPost(buildUrl(SftpBackupStorageConstant.DUMP_IMAGE_METADATA_TO_FILE, getHostNameFromImageInventory(img)), dumpCmd,
@@ -149,7 +174,8 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
 
     private  void dumpAllImageDataToMetaDataFile(ImageInventory img) {
         SftpBackupStorageCommands.DumpImageInfoToMetaDataFileCmd dumpCmd = new SftpBackupStorageCommands.DumpImageInfoToMetaDataFileCmd();
-        dumpCmd.setImageMetaData(getAllImageVOInfo());
+        String metaData = getAllImageVOInfo() + "\n" + getAllImageBackupStorageRefVOInfo();
+        dumpCmd.setImageMetaData(metaData);
         dumpCmd.setBackupStoragePath(getBsUrlFromImageInventory(img));
         restf.asyncJsonPost(buildUrl(SftpBackupStorageConstant.DUMP_IMAGE_METADATA_TO_FILE, getHostNameFromImageInventory(img)), dumpCmd,
                 new JsonAsyncRESTCallback<SftpBackupStorageCommands.DumpImageInfoToMetaDataFileRsp >() {
@@ -161,9 +187,9 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
                     @Override
                     public void success(SftpBackupStorageCommands.DumpImageInfoToMetaDataFileRsp rsp) {
                         if (!rsp.isSuccess()) {
-                            logger.error("Dump image metadata failed");
+                            logger.error("Dump image metadata to file failed");
                         } else {
-                            logger.info("Dump image metadata successfully");
+                            logger.info("Dump image metadata to file successfully");
                         }
                     }
 
@@ -200,7 +226,7 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
 
                     @Override
                     public void run(FlowTrigger trigger, Map data) {
-
+                        //todo: cmd should post bs uuid
                         SftpBackupStorageCommands.CheckImageMetaDataFileExistCmd cmd = new SftpBackupStorageCommands.CheckImageMetaDataFileExistCmd();
                         cmd.setBackupStoragePath(getBsUrlFromImageInventory(img));
                         restf.asyncJsonPost(buildUrl(SftpBackupStorageConstant.CHECK_IMAGE_METADATA_FILE_EXIST, getHostNameFromImageInventory(img)), cmd,
@@ -332,7 +358,7 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
                                 logger.error(String.format("Get images metadata: %s failed", rsp.getImagesMetaData()));
                             } else {
                                 RestoreImagesMetadataToDatabase(rsp.getImagesMetaData());
-                                logger.error(String.format("Get images metadata: %s failed", rsp.getImagesMetaData()));
+                                logger.info(String.format("Get images metadata: %s success", rsp.getImagesMetaData()));
                             }
                         }
 
