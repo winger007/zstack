@@ -1,6 +1,5 @@
 package org.zstack.storage.backup.sftp;
 
-import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.util.UriComponentsBuilder;
 import org.zstack.core.CoreGlobalProperty;
@@ -19,13 +18,12 @@ import org.zstack.header.image.*;
 import org.zstack.header.rest.JsonAsyncRESTCallback;
 import org.zstack.header.rest.RESTFacade;
 import org.zstack.header.storage.backup.AddBackupStorageExtensionPoint;
-import org.zstack.header.storage.backup.BackupStorageInventory;
+import org.zstack.header.storage.backup.AddBackupStorageStruct;
 import org.zstack.utils.Utils;
 import org.zstack.utils.gson.JSONObjectUtil;
 import org.zstack.utils.logging.CLogger;
 
 import javax.persistence.Query;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -59,46 +57,62 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
     }
 
     private String getAllImageVOInfo() {
+        String allImageVOInfo = null;
         String sql = "select image from ImageVO image";
         Query q = dbf.getEntityManager().createQuery(sql);
         List<ImageVO> allImageInfo = q.getResultList();
-        return JSONObjectUtil.toJsonString(allImageInfo);
+        for ( ImageVO imageInfo: allImageInfo ) {
+            if (allImageVOInfo != null) {
+                allImageVOInfo = JSONObjectUtil.toJsonString(imageInfo) + "\n" + allImageVOInfo;
+            } else {
+                allImageVOInfo = JSONObjectUtil.toJsonString(imageInfo);
+            }
+        }
+        return allImageVOInfo;
     }
 
     private String getAllImageBackupStorageRefVOInfo() {
+        String allRefVOInfo = null;
         String sql = "select ref from ImageBackupStorageRefVO ref";
         Query q = dbf.getEntityManager().createQuery(sql);
-        List<ImageVO> allRefInfo = q.getResultList();
-        return JSONObjectUtil.toJsonString(allRefInfo);
+        List<ImageBackupStorageRefVO> allRefInfo = q.getResultList();
+        for ( ImageBackupStorageRefVO refInfo : allRefInfo ) {
+            if (allRefVOInfo != null) {
+                allRefVOInfo = JSONObjectUtil.toJsonString(refInfo) + "\n" + allRefVOInfo;
+            } else {
+                allRefVOInfo = JSONObjectUtil.toJsonString(refInfo);
+            }
+        }
+        return allRefVOInfo;
     }
 
     private  String getImageVOInfo(ImageInventory image) {
-        String sql = "select image from ImageVO image where image.uuid =:uuid ";
-        Query q = dbf.getEntityManager().createQuery(sql);
-        q.setParameter("uuid", image.getUuid());
-        List<ImageVO> imageInfo = q.getResultList();
-        return JSONObjectUtil.toJsonString(imageInfo.get(0));
+        SimpleQuery<ImageVO> q = dbf.createQuery(ImageVO.class);
+        q.add(ImageVO_.uuid, SimpleQuery.Op.EQ, image.getUuid());
+        ImageVO imageVO = q.find();
+        return JSONObjectUtil.toJsonString(imageVO);
     }
 
     private  String getImageBackupStorageRefVOInfo(ImageInventory image) {
-        String sql = "select ref from ImageBackupStorageRefVO ref where image.uuid =:uuid ";
-        Query q = dbf.getEntityManager().createQuery(sql);
-        q.setParameter("uuid", image.getUuid());
-        List<ImageVO> refInfo = q.getResultList();
-        return JSONObjectUtil.toJsonString(refInfo.get(0));
+        SimpleQuery<ImageBackupStorageRefVO> q = dbf.createQuery(ImageBackupStorageRefVO.class);
+        q.add(ImageBackupStorageRefVO_.imageUuid, SimpleQuery.Op.EQ, image.getUuid());
+        ImageBackupStorageRefVO imageBackupStorageRefVO = q.find();
+        return JSONObjectUtil.toJsonString(imageBackupStorageRefVO);
     }
 
-    private void RestoreImagesMetadataToDatabase(String imageInfo) {
-        String[] metadatas =  imageInfo.split("\n");
-        List<ImageVO> imagesVO = new ArrayList<>();
+    private void restoreImagesMetadataToDatabase(String imagesInfo) {
+        String[] metadatas =  imagesInfo.split("\n");
+        //List<ImageVO> imageVOs = new ArrayList<>();
+        // check data type, imageVO or ImageBackupStorageRefVO
+        // if imageVO, import
+        // else if ImageBackupStorageRefVO, import new data with new backupStorageUuid, imageUuid, installPath. status
         for ( String metadata : metadatas) {
-            JSONObject tmpMetaData = JSONObjectUtil.toObject(metadata, JSONObject.class);
-            tmpMetaData.getJSONArray("")
-
+            logger.debug(String.format("meilei:%s", metadata));
             ImageVO imageVO = JSONObjectUtil.toObject(metadata, ImageVO.class);
-            imagesVO.add(imageVO);
+            //ImageInventory inv = imageVO.
+            //imageVOs.add(imageVO);
         }
-        dbf.persist(imagesVO);
+        //dbf.persist(imageVOs);
     }
 
 
@@ -147,7 +161,7 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
     private  void dumpImageDataToMetaDataFile(ImageInventory img) {
         SftpBackupStorageCommands.DumpImageInfoToMetaDataFileCmd dumpCmd = new SftpBackupStorageCommands.DumpImageInfoToMetaDataFileCmd();
         String metaData = getImageVOInfo(img) + "\n" + getImageBackupStorageRefVOInfo(img);
-        dumpCmd.setImageMetaData(getImageVOInfo(img));
+        dumpCmd.setImageMetaData(metaData);
         dumpCmd.setBackupStoragePath(getBsUrlFromImageInventory(img));
         restf.asyncJsonPost(buildUrl(SftpBackupStorageConstant.DUMP_IMAGE_METADATA_TO_FILE, getHostNameFromImageInventory(img)), dumpCmd,
                 new JsonAsyncRESTCallback<SftpBackupStorageCommands.DumpImageInfoToMetaDataFileRsp >() {
@@ -216,7 +230,7 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
 
         FlowChain chain = FlowChainBuilder.newShareFlowChain();
 
-        chain.setName("create-image-metadta-to-backupstorage");
+        chain.setName("add-image-metadata-to-backupStorage-file");
         chain.then(new ShareFlow() {
             boolean metaDataExist = false;
             @Override
@@ -332,19 +346,19 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
     }
 
     @Override
-    public void preAddBackupStorage(BackupStorageInventory backupStorage) {
+    public void preAddBackupStorage(AddBackupStorageStruct backupStorage) {
 
     }
     @Override
-    public void beforeAddBackupStorage(BackupStorageInventory backupStorage) {
+    public void beforeAddBackupStorage(AddBackupStorageStruct backupStorage) {
 
     }
     @Override
-    public void afterAddBackupStorage(BackupStorageInventory backupStorage) {
-        SftpBackupStorageInventory inv = (SftpBackupStorageInventory) backupStorage;
-        if (backupStorage.isImportImageInfo()) {
+    public void afterAddBackupStorage(AddBackupStorageStruct backupStorage) {
+        SftpBackupStorageVO inv = (SftpBackupStorageVO) backupStorage.getVo();
+        if (backupStorage.getImportImages()) {
             SftpBackupStorageCommands.GetImagesMetaDataCmd cmd = new SftpBackupStorageCommands.GetImagesMetaDataCmd();
-            cmd.setBackupStoragePath(backupStorage.getUrl());
+            cmd.setBackupStoragePath(inv.getUrl());
             restf.asyncJsonPost(buildUrl(SftpBackupStorageConstant.GET_IMAGES_METADATA, inv.getHostname()), cmd,
                     new JsonAsyncRESTCallback<SftpBackupStorageCommands.GetImagesMetaDataRsp>() {
                         @Override
@@ -357,7 +371,7 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
                             if (!rsp.isSuccess()) {
                                 logger.error(String.format("Get images metadata: %s failed", rsp.getImagesMetaData()));
                             } else {
-                                RestoreImagesMetadataToDatabase(rsp.getImagesMetaData());
+                                restoreImagesMetadataToDatabase(rsp.getImagesMetaData());
                                 logger.info(String.format("Get images metadata: %s success", rsp.getImagesMetaData()));
                             }
                         }
@@ -370,7 +384,7 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
         }
 
     }
-    public void failedToAddBackupStorage(BackupStorageInventory backupStorage, ErrorCode err) {
+    public void failedToAddBackupStorage(AddBackupStorageStruct backupStorage, ErrorCode err) {
 
     }
 
