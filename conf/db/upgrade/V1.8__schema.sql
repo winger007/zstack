@@ -64,7 +64,6 @@ ALTER TABLE VCenterPrimaryStorageVO ADD CONSTRAINT fkVCenterPrimaryStorageVOVCen
 
 # Foreign keys for table VCenterVO
 ALTER TABLE VCenterVO ADD CONSTRAINT fkVCenterVOZoneEO FOREIGN KEY (zoneUuid) REFERENCES ZoneEO (uuid) ON DELETE CASCADE  ;
-
 ALTER TABLE SchedulerVO CHANGE startDate  startTime  timestamp;
 ALTER TABLE SchedulerVO CHANGE stopDate  stopTime  timestamp NULL DEFAULT NULL;
 UPDATE SchedulerVO SET stopTime = NULL;
