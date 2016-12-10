@@ -30,14 +30,14 @@ public abstract class APIAddBackupStorageMsg extends APICreateMessage {
 	private String type;
 
 	@APIParam(required = false)
-	private boolean importImageInfo;
+	private boolean importImages;
 
-	public boolean isImportImageInfo() {
-		return importImageInfo;
+	public boolean isImportImages() {
+		return importImages;
 	}
 
-	public void setImportImageInfo(boolean importImageInfo) {
-		this.importImageInfo = importImageInfo;
+	public void setImportImages(boolean importImages) {
+		this.importImages = importImages;
 	}
 
 	public APIAddBackupStorageMsg() {

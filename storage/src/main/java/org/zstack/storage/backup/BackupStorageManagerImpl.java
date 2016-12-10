@@ -184,9 +184,6 @@ public class BackupStorageManagerImpl extends AbstractService implements BackupS
             vo.setUuid(Platform.getUuid());
         }
 
-        if (msg.isImportImageInfo()) {
-            vo.setImportImageInfo(true);
-        }
         vo.setUrl(msg.getUrl());
         vo.setType(type.toString());
         vo.setName(msg.getName());
@@ -196,7 +193,7 @@ public class BackupStorageManagerImpl extends AbstractService implements BackupS
 
         final BackupStorageInventory inv = factory.createBackupStorage(vo, msg);
         AddBackupStorageStruct struct = new AddBackupStorageStruct();
-        if(msg.isImportImageInfo()) {
+        if(msg.isImportImages()) {
             struct.setImportImages(true);
         }
 
