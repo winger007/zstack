@@ -376,10 +376,9 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
     }
     @Override
     public void afterAddBackupStorage(AddBackupStorageStruct backupStorage) {
-        logger.debug("meilei: entering to import images metadata");
         SftpBackupStorageVO inv = (SftpBackupStorageVO) backupStorage.getVo();
         if (backupStorage.getImportImages()) {
-            logger.debug("meilei: Starting to import images metadata");
+            logger.debug("Starting to import images metadata");
             SftpBackupStorageCommands.GetImagesMetaDataCmd cmd = new SftpBackupStorageCommands.GetImagesMetaDataCmd();
             cmd.setBackupStoragePath(inv.getUrl());
             restf.asyncJsonPost(buildUrl(SftpBackupStorageConstant.GET_IMAGES_METADATA, inv.getHostname()), cmd,
