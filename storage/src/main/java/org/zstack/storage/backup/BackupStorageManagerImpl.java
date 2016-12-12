@@ -193,6 +193,7 @@ public class BackupStorageManagerImpl extends AbstractService implements BackupS
 
         final BackupStorageInventory inv = factory.createBackupStorage(vo, msg);
         AddBackupStorageStruct struct = new AddBackupStorageStruct();
+        logger.debug(String.format("meilei: import images %s", msg.isImportImages()));
         if(msg.isImportImages()) {
             struct.setImportImages(true);
         }
