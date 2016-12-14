@@ -5,7 +5,7 @@ package org.zstack.header.storage.backup;
  */
 public class AddBackupStorageStruct {
     private Boolean importImages=false;
-    private BackupStorageVO vo;
+    private BackupStorageInventory backupStorageInventory;
 
     public Boolean getImportImages() {
         return importImages;
@@ -15,11 +15,11 @@ public class AddBackupStorageStruct {
         this.importImages = importImages;
     }
 
-    public BackupStorageVO getVo() {
-        return vo;
+    public BackupStorageInventory getBackupStorageInventory() {
+        return backupStorageInventory;
     }
 
-    public void setVo(BackupStorageVO vo) {
-        this.vo = vo;
+    public void setBackupStorageInventory(BackupStorageInventory backupStorageInventory) {
+        this.backupStorageInventory = backupStorageInventory;
     }
 }

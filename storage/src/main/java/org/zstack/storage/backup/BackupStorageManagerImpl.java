@@ -197,7 +197,7 @@ public class BackupStorageManagerImpl extends AbstractService implements BackupS
         if(msg.isImportImages()) {
             struct.setImportImages(true);
         }
-        struct.setVo(vo);
+        struct.setBackupStorageInventory(inv);
 
         tagMgr.createTagsFromAPICreateMessage(msg, inv.getUuid(), BackupStorageVO.class.getSimpleName());
 
