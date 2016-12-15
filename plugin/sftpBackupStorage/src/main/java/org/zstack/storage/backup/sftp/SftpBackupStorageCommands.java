@@ -192,7 +192,7 @@ public class SftpBackupStorageCommands {
     }
 
     public static class GetImagesMetaDataCmd extends AgentCommand {
-        public String BackupStoragePath;
+        private String BackupStoragePath;
 
         public String getBackupStoragePath() {
             return BackupStoragePath;
@@ -204,7 +204,7 @@ public class SftpBackupStorageCommands {
     }
 
     public static class GetImagesMetaDataRsp extends AgentResponse {
-        public String ImagesMetaData;
+        private String ImagesMetaData;
 
         public String getImagesMetaData() {
             return ImagesMetaData;
@@ -216,7 +216,7 @@ public class SftpBackupStorageCommands {
     }
 
     public static class CheckImageMetaDataFileExistCmd extends AgentCommand {
-        public String BackupStoragePath;
+        private String BackupStoragePath;
 
         public String getBackupStoragePath() {
             return BackupStoragePath;
@@ -228,8 +228,8 @@ public class SftpBackupStorageCommands {
     }
 
     public static class CheckImageMetaDataFileExistRsp extends AgentResponse{
-        public String BackupStorageMetaFileName;
-        public Boolean exist;
+        private String BackupStorageMetaFileName;
+        private Boolean exist;
 
         public Boolean getExist() {
             return exist;
@@ -249,7 +249,7 @@ public class SftpBackupStorageCommands {
     }
 
     public static class GenerateImageMetaDataFileCmd extends AgentCommand {
-        public String BackupStoragePath;
+        private String BackupStoragePath;
 
         public String getBackupStoragePath() {
             return BackupStoragePath;
@@ -261,7 +261,7 @@ public class SftpBackupStorageCommands {
     }
 
     public static class GenerateImageMetaDataFileRsp extends AgentResponse {
-        public String BackupStorageMetaFileName;
+        private String BackupStorageMetaFileName;
 
         public String getBackupStorageMetaFileName() {
             return BackupStorageMetaFileName;
@@ -273,8 +273,8 @@ public class SftpBackupStorageCommands {
     }
 
     public static class DumpImageInfoToMetaDataFileCmd extends AgentCommand {
-        public String BackupStoragePath;
-        public String ImageMetaData;
+        private String BackupStoragePath;
+        private String ImageMetaData;
 
         public String getBackupStoragePath() {
             return BackupStoragePath;
@@ -294,5 +294,56 @@ public class SftpBackupStorageCommands {
     }
 
     public static class DumpImageInfoToMetaDataFileRsp extends AgentResponse {
+    }
+
+    public static class DeleteImageInfoFromMetaDataFileCmd extends AgentCommand {
+        private String imageUuid;
+        private String imageBackupStorageUuid;
+        private String backupStoragePath;
+
+        public String getBackupStoragePath() {
+            return backupStoragePath;
+        }
+
+        public void setBackupStoragePath(String backupStoragePath) {
+            this.backupStoragePath = backupStoragePath;
+        }
+
+        public String getImageBackupStorageUuid() {
+            return imageBackupStorageUuid;
+        }
+
+        public void setImageBackupStorageUuid(String imageBackupStorageUuid) {
+            this.imageBackupStorageUuid = imageBackupStorageUuid;
+        }
+
+        public String getImageUuid() {
+            return imageUuid;
+        }
+
+        public void setImageUuid(String imageUuid) {
+            this.imageUuid = imageUuid;
+        }
+    }
+
+    public static class DeleteImageInfoFromMetaDataFileRsp extends AgentResponse {
+        private Integer ret;
+        private String out;
+
+        public Integer getRet() {
+            return ret;
+        }
+
+        public void setRet(Integer ret) {
+            this.ret = ret;
+        }
+
+        public String getOut() {
+            return out;
+        }
+
+        public void setOut(String out) {
+            this.out = out;
+        }
     }
 }

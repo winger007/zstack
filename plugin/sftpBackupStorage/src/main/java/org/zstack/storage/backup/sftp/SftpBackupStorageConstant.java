@@ -20,6 +20,7 @@ public interface SftpBackupStorageConstant {
     public static final String CHECK_IMAGE_METADATA_FILE_EXIST = "/sftpbackupstorage/checkimagemetadatafileexist";
     public static final String DUMP_IMAGE_METADATA_TO_FILE = "/sftpbackupstorage/dumpimagemetadatatofile";
     public static final String GET_IMAGES_METADATA = "/sftpbackupstorage/getimagesmetadata";
+    public static final String DELETE_IMAGES_METADATA = "/sftpbackupstorage/deleteimagesmetadata";
     public static final String ANSIBLE_PLAYBOOK_NAME = "sftpbackupstorage.py";
     public static final String ANSIBLE_MODULE_PATH = "ansible/sftpbackupstorage";
     public static final String GET_IMAGE_SIZE = "/sftpbackupstorage/getimagesize";

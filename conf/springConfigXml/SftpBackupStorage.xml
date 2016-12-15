@@ -38,6 +38,7 @@
     class="org.zstack.storage.backup.sftp.SftpBackupStorageMetaDataMaker">
     <zstack:plugin>
       <zstack:extension interface="org.zstack.header.image.AddImageExtensionPoint"/>
+      <zstack:extension interface="org.zstack.header.image.ExpungeImageExtensionPoint"/>
       <zstack:extension interface="org.zstack.header.storage.backup.AddBackupStorageExtensionPoint"/>
     </zstack:plugin>
   </bean>

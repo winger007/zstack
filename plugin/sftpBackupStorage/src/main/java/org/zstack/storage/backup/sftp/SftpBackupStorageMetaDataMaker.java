@@ -28,7 +28,7 @@ import java.util.*;
 /**
  * Created by Mei Lei <meilei007@gmail.com> on 11/3/16.
  */
-public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, AddBackupStorageExtensionPoint {
+public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, AddBackupStorageExtensionPoint, ExpungeImageExtensionPoint {
     private static final CLogger logger = Utils.getLogger(SftpBackupStorage.class);
     @Autowired
     protected RESTFacade restf;
@@ -68,9 +68,6 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
         return allImageInventories;
     }
 
-    private  String getImageInventory(ImageInventory image) {
-        return JSONObjectUtil.toJsonString(image);
-    }
 
     private void restoreImagesBackupStorageMetadataToDatabase(String imagesBackupStoragesInfo, String backupStorageUuid) {
         List<ImageVO>  imageVOs = new ArrayList<ImageVO>();
@@ -78,9 +75,7 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
         String[] metadatas =  imagesBackupStoragesInfo.split("\n");
         for ( String metadata : metadatas) {
             if (metadata.contains("backupStorageRefs")) {
-                // this is imageInventory metaData
                 ImageInventory imageInventory = JSONObjectUtil.toObject(metadata, ImageInventory.class);
-                ImageVO imageVO = new ImageVO();
                 for ( ImageBackupStorageRefInventory ref : imageInventory.getBackupStorageRefs()) {
                     ImageBackupStorageRefVO backupStorageRefVO = new ImageBackupStorageRefVO();
                     backupStorageRefVO.setStatus(ImageStatus.valueOf(ref.getStatus()));
@@ -91,6 +86,7 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
                     backupStorageRefVO.setLastOpDate(ref.getLastOpDate());
                     backupStorageRefVOs.add(backupStorageRefVO);
                 }
+                ImageVO imageVO = new ImageVO();
                 imageVO.setActualSize(imageInventory.getActualSize());
                 imageVO.setDescription(imageInventory.getDescription());
                 imageVO.setStatus(ImageStatus.valueOf(imageInventory.getStatus()));
@@ -144,6 +140,7 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
         q.add(ImageBackupStorageRefVO_.imageUuid, SimpleQuery.Op.EQ, img.getUuid());
         List<String> bsUuids = q.listValue();
         if (bsUuids.isEmpty()) {
+            logger.warn("Didn't find any available backup storage");
             return null;
         }
         String bsUuid = bsUuids.get(0);
@@ -153,15 +150,21 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
         q.add(SftpBackupStorageVO_.uuid, SimpleQuery.Op.EQ, bsUuid);
         List<SftpBackupStorageVO> hostNames = q2.listValue();
         if (hostNames.isEmpty())  {
+            logger.warn("Didn't find any available host name");
             return null;
         }
         SftpBackupStorageVO bsVO = hostNames.get(0);
         return bsVO.getHostname();
     }
 
-    private  void dumpImageDataToMetaDataFile(ImageInventory img) {
+    private  void dumpImagesBackupStorageInfoToMetaDataFile(ImageInventory img, boolean allImagesInfo) {
         SftpBackupStorageCommands.DumpImageInfoToMetaDataFileCmd dumpCmd = new SftpBackupStorageCommands.DumpImageInfoToMetaDataFileCmd();
-        String metaData = getImageInventory(img);
+        String metaData;
+        if (allImagesInfo) {
+            metaData = getAllImageInventories();
+        } else {
+            metaData = JSONObjectUtil.toJsonString(img);
+        }
         dumpCmd.setImageMetaData(metaData);
         dumpCmd.setBackupStoragePath(getBsUrlFromImageInventory(img));
         restf.asyncJsonPost(buildUrl(SftpBackupStorageConstant.DUMP_IMAGE_METADATA_TO_FILE, getHostNameFromImageInventory(img)), dumpCmd,
@@ -186,35 +189,6 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
                     }
                 });
     }
-
-    private  void dumpAllImageDataToMetaDataFile(ImageInventory img) {
-        SftpBackupStorageCommands.DumpImageInfoToMetaDataFileCmd dumpCmd = new SftpBackupStorageCommands.DumpImageInfoToMetaDataFileCmd();
-        String metaData = getAllImageInventories();
-        dumpCmd.setImageMetaData(metaData);
-        dumpCmd.setBackupStoragePath(getBsUrlFromImageInventory(img));
-        restf.asyncJsonPost(buildUrl(SftpBackupStorageConstant.DUMP_IMAGE_METADATA_TO_FILE, getHostNameFromImageInventory(img)), dumpCmd,
-                new JsonAsyncRESTCallback<SftpBackupStorageCommands.DumpImageInfoToMetaDataFileRsp >() {
-                    @Override
-                    public void fail(ErrorCode err) {
-                        logger.error("Dump image metadata failed" + err.toString());
-                    }
-
-                    @Override
-                    public void success(SftpBackupStorageCommands.DumpImageInfoToMetaDataFileRsp rsp) {
-                        if (!rsp.isSuccess()) {
-                            logger.error("Dump image metadata to file failed");
-                        } else {
-                            logger.info("Dump image metadata to file successfully");
-                        }
-                    }
-
-                    @Override
-                    public Class<SftpBackupStorageCommands.DumpImageInfoToMetaDataFileRsp> getReturnClass() {
-                        return SftpBackupStorageCommands.DumpImageInfoToMetaDataFileRsp.class;
-                    }
-                });
-    }
-
 
     @Override
     public void preAddImage(ImageInventory img) {
@@ -304,11 +278,11 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
                                             if (!rsp.isSuccess()) {
                                                 ErrorCode ec = errf.instantiateErrorCode(
                                                         SysErrors.OPERATION_ERROR,
-                                                        String.format("Create image metadata file : %s failed", rsp.BackupStorageMetaFileName));
+                                                        String.format("Create image metadata file : %s failed", rsp.getBackupStorageMetaFileName()));
                                                 trigger.fail(ec);
                                             } else {
                                                 logger.info("Create image metadata file successfully");
-                                                dumpAllImageDataToMetaDataFile(img);
+                                                dumpImagesBackupStorageInfoToMetaDataFile(img, true);
                                                 trigger.next();
                                             }
                                         }
@@ -320,7 +294,7 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
                                     });
 
                         } else {
-                            dumpImageDataToMetaDataFile(img);
+                            dumpImagesBackupStorageInfoToMetaDataFile(img, false);
                             trigger.next();
                         }
 
@@ -373,8 +347,8 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
                             if (!rsp.isSuccess()) {
                                 logger.error(String.format("Get images metadata: %s failed", rsp.getImagesMetaData()));
                             } else {
-                                restoreImagesBackupStorageMetadataToDatabase(rsp.getImagesMetaData(), backupStorage.getBackupStorageInventory().getUuid());
                                 logger.info(String.format("Get images metadata: %s success", rsp.getImagesMetaData()));
+                                restoreImagesBackupStorageMetadataToDatabase(rsp.getImagesMetaData(), backupStorage.getBackupStorageInventory().getUuid());
                             }
                         }
 
@@ -387,6 +361,131 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
 
     }
     public void failedToAddBackupStorage(AddBackupStorageStruct backupStorage, ErrorCode err) {
+
+    }
+
+    public void preExpungeImage(ImageInventory img) {
+
+    }
+
+    public void beforeExpungeImage(ImageInventory img) {
+
+    }
+
+    public void afterExpungeImage(ImageInventory img, String backupStorageUuid) {
+        FlowChain chain = FlowChainBuilder.newShareFlowChain();
+
+        chain.setName("delete-image-info-from-metadata-file");
+        String hostName = getHostNameFromImageInventory(img);
+        String bsUrl = getBsUrlFromImageInventory(img);
+        chain.then(new ShareFlow() {
+            boolean metaDataExist = false;
+            @Override
+            public void setup() {
+                flow(new NoRollbackFlow() {
+                    String __name__ = "check-image-metadata-file-exist";
+
+                    @Override
+                    public void run(FlowTrigger trigger, Map data) {
+                        SftpBackupStorageCommands.CheckImageMetaDataFileExistCmd cmd = new SftpBackupStorageCommands.CheckImageMetaDataFileExistCmd();
+                        cmd.setBackupStoragePath(bsUrl);
+                        restf.asyncJsonPost(buildUrl(SftpBackupStorageConstant.CHECK_IMAGE_METADATA_FILE_EXIST, hostName), cmd,
+                                new JsonAsyncRESTCallback<SftpBackupStorageCommands.CheckImageMetaDataFileExistRsp>() {
+                                    @Override
+                                    public void fail(ErrorCode err) {
+                                        logger.error("Check image metadata file exist failed" + err.toString());
+                                        trigger.fail(err);
+                                    }
+
+                                    @Override
+                                    public void success(SftpBackupStorageCommands.CheckImageMetaDataFileExistRsp rsp) {
+                                        if (!rsp.isSuccess()) {
+                                            logger.error(String.format("Check image metadata file: %s failed", rsp.getBackupStorageMetaFileName()));
+                                            ErrorCode ec = errf.instantiateErrorCode(
+                                                    SysErrors.OPERATION_ERROR,
+                                                    String.format("Check image metadata file: %s failed", rsp.getBackupStorageMetaFileName())
+                                            );
+                                            trigger.fail(ec);
+                                        } else {
+                                            if (!rsp.getExist()) {
+                                                logger.info(String.format("Image metadata file %s is not exist", rsp.getBackupStorageMetaFileName()));
+                                                ErrorCode ec = errf.instantiateErrorCode(
+                                                        SysErrors.OPERATION_ERROR,
+                                                        String.format("Image metadata file: %s is not exist", rsp.getBackupStorageMetaFileName())
+                                                );
+                                                trigger.fail(ec);
+                                            } else {
+                                                logger.info(String.format("Image metadata file %s exist", rsp.getBackupStorageMetaFileName()));
+                                                trigger.next();
+                                            }
+                                        }
+                                    }
+
+                                    @Override
+                                    public Class<SftpBackupStorageCommands.CheckImageMetaDataFileExistRsp> getReturnClass() {
+                                        return SftpBackupStorageCommands.CheckImageMetaDataFileExistRsp.class;
+                                    }
+                                });
+                    }
+                });
+
+
+                flow(new NoRollbackFlow() {
+                    String __name__ = "delete-image-info";
+
+                    @Override
+                    public void run(FlowTrigger trigger, Map data) {
+                        SftpBackupStorageCommands.DeleteImageInfoFromMetaDataFileCmd deleteCmd = new SftpBackupStorageCommands.DeleteImageInfoFromMetaDataFileCmd();
+                        deleteCmd.setImageUuid(img.getUuid());
+                        deleteCmd.setImageBackupStorageUuid(backupStorageUuid);
+                        deleteCmd.setBackupStoragePath(bsUrl);
+                        restf.asyncJsonPost(buildUrl(SftpBackupStorageConstant.DELETE_IMAGES_METADATA, hostName), deleteCmd,
+                                new JsonAsyncRESTCallback<SftpBackupStorageCommands.DeleteImageInfoFromMetaDataFileRsp>() {
+                                    @Override
+                                    public void fail(ErrorCode err) {
+                                        logger.error("delete image metadata file failed" + err.toString());
+                                    }
+
+                                    @Override
+                                    public void success(SftpBackupStorageCommands.DeleteImageInfoFromMetaDataFileRsp rsp) {
+                                        if (!rsp.isSuccess()) {
+                                            ErrorCode ec = errf.instantiateErrorCode(
+                                                    SysErrors.OPERATION_ERROR,
+                                                    String.format("delete image metadata file failed: %s", rsp.getError()));
+                                            trigger.fail(ec);
+                                        } else {
+                                            if (rsp.getRet() != 0) {
+                                                logger.info(String.format("delete image %s metadata failed : %s", img.getUuid(), rsp.getOut()));
+                                                trigger.next();
+                                            } else {
+                                                logger.info(String.format("delete image %s metadata successfully", img.getUuid()));
+                                                trigger.next();
+                                            }
+                                        }
+                                    }
+
+                                    @Override
+                                    public Class<SftpBackupStorageCommands.DeleteImageInfoFromMetaDataFileRsp> getReturnClass() {
+                                        return SftpBackupStorageCommands.DeleteImageInfoFromMetaDataFileRsp.class;
+                                    }
+                                });
+
+
+                    }
+                });
+
+                done(new FlowDoneHandler() {
+                    @Override
+                    public void handle(Map data) {
+
+                    }
+                });
+
+            }
+        }).start();
+    }
+
+    public void failedToExpungeImage(ImageInventory img, ErrorCode err) {
 
     }
 
