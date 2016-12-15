@@ -49,6 +49,8 @@ public class SftpBackupStorage extends BackupStorageBase {
     private ErrorFacade errf;
     @Autowired
     private ApiTimeoutManager timeoutManager;
+    @Autowired
+    private SftpBackupStorageMetaDataMaker metaDataMaker;
 
     private String agentPackageName = SftpBackupStorageGlobalProperty.AGENT_PACKAGE_NAME;
 
@@ -227,7 +229,23 @@ public class SftpBackupStorage extends BackupStorageBase {
 
     @Override
     protected void connectHook(boolean newAdded, Completion completion) {
-        connect(completion);
+        connect(new Completion(completion) {
+            @Override
+            public void success() {
+               if (!newAdded) {
+                   String backupStorageUrl = getSelf().getUrl();
+                   String backStorageHostName = getSelf().getHostname();
+                   metaDataMaker.dumpImagesBackupStorageInfoToMetaDataFile(null,true,backupStorageUrl, backStorageHostName);
+               }
+               completion.success();
+            }
+
+            @Override
+            public void fail(ErrorCode errorCode) {
+                completion.fail(errorCode);
+
+            }
+        });
     }
 
     @Override

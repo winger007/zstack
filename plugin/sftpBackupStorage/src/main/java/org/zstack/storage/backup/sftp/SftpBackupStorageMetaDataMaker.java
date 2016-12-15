@@ -54,7 +54,8 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
         return ub.build().toUriString();
     }
 
-    private String getAllImageInventories() {
+    private String getAllImageInventories(ImageInventory img) {
+        //todo: and bs uuid to limit not get other bs images
         String allImageInventories = null;
         SimpleQuery<ImageVO> q = dbf.createQuery(ImageVO.class);
         List<ImageVO> allImageVO = q.list();
@@ -157,17 +158,26 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
         return bsVO.getHostname();
     }
 
-    private  void dumpImagesBackupStorageInfoToMetaDataFile(ImageInventory img, boolean allImagesInfo) {
+    protected  void dumpImagesBackupStorageInfoToMetaDataFile(ImageInventory img, boolean allImagesInfo, String bsUrl, String hostName ) {
+        logger.debug("dump all images info to meta data file");
         SftpBackupStorageCommands.DumpImageInfoToMetaDataFileCmd dumpCmd = new SftpBackupStorageCommands.DumpImageInfoToMetaDataFileCmd();
         String metaData;
         if (allImagesInfo) {
-            metaData = getAllImageInventories();
+            metaData = getAllImageInventories(img);
         } else {
             metaData = JSONObjectUtil.toJsonString(img);
         }
         dumpCmd.setImageMetaData(metaData);
-        dumpCmd.setBackupStoragePath(getBsUrlFromImageInventory(img));
-        restf.asyncJsonPost(buildUrl(SftpBackupStorageConstant.DUMP_IMAGE_METADATA_TO_FILE, getHostNameFromImageInventory(img)), dumpCmd,
+        dumpCmd.setDumpAllMetaData(allImagesInfo);
+        if ( bsUrl != null) {
+            dumpCmd.setBackupStoragePath(bsUrl);
+        } else {
+            dumpCmd.setBackupStoragePath(getBsUrlFromImageInventory(img));
+        }
+        if (hostName ==  null || hostName.isEmpty()) {
+           hostName = getHostNameFromImageInventory(img);
+        }
+        restf.asyncJsonPost(buildUrl(SftpBackupStorageConstant.DUMP_IMAGE_METADATA_TO_FILE, hostName), dumpCmd,
                 new JsonAsyncRESTCallback<SftpBackupStorageCommands.DumpImageInfoToMetaDataFileRsp >() {
                     @Override
                     public void fail(ErrorCode err) {
@@ -215,7 +225,6 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
 
                     @Override
                     public void run(FlowTrigger trigger, Map data) {
-                        //todo: cmd should post bs uuid
                         SftpBackupStorageCommands.CheckImageMetaDataFileExistCmd cmd = new SftpBackupStorageCommands.CheckImageMetaDataFileExistCmd();
                         cmd.setBackupStoragePath(getBsUrlFromImageInventory(img));
                         restf.asyncJsonPost(buildUrl(SftpBackupStorageConstant.CHECK_IMAGE_METADATA_FILE_EXIST, getHostNameFromImageInventory(img)), cmd,
@@ -282,7 +291,7 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
                                                 trigger.fail(ec);
                                             } else {
                                                 logger.info("Create image metadata file successfully");
-                                                dumpImagesBackupStorageInfoToMetaDataFile(img, true);
+                                                dumpImagesBackupStorageInfoToMetaDataFile(img, true, null, null);
                                                 trigger.next();
                                             }
                                         }
@@ -294,7 +303,7 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
                                     });
 
                         } else {
-                            dumpImagesBackupStorageInfoToMetaDataFile(img, false);
+                            dumpImagesBackupStorageInfoToMetaDataFile(img, false, null, null);
                             trigger.next();
                         }
 
