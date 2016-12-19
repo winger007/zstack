@@ -235,7 +235,7 @@ public class SftpBackupStorage extends BackupStorageBase {
                if (!newAdded) {
                    String backupStorageUrl = getSelf().getUrl();
                    String backStorageHostName = getSelf().getHostname();
-                   metaDataMaker.dumpImagesBackupStorageInfoToMetaDataFile(null,true,backupStorageUrl, backStorageHostName);
+                   metaDataMaker.dumpImagesBackupStorageInfoToMetaDataFile(null,true, backupStorageUrl, backStorageHostName);
                }
                completion.success();
             }

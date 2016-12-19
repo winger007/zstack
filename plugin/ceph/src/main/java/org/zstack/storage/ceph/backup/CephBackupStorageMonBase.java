@@ -2,7 +2,6 @@ package org.zstack.storage.ceph.backup;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.zstack.core.CoreGlobalProperty;
-import org.zstack.core.Platform;
 import org.zstack.core.ansible.AnsibleGlobalProperty;
 import org.zstack.core.ansible.AnsibleRunner;
 import org.zstack.core.ansible.SshFileMd5Checker;
@@ -50,6 +49,7 @@ public class CephBackupStorageMonBase extends CephMonBase {
 
     public static final String ECHO_PATH = "/ceph/backupstorage/echo";
     public static final String PING_PATH = "/ceph/backupstorage/ping";
+    public static final String META_DATA_PATH = "/var/lib/zstack/cephb/";
 
     public static class AgentCmd {
         public String monUuid;

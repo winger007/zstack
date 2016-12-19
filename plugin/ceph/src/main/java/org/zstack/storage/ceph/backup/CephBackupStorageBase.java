@@ -21,6 +21,7 @@ import org.zstack.header.message.APIMessage;
 import org.zstack.header.rest.RESTFacade;
 import org.zstack.header.storage.backup.*;
 import org.zstack.storage.backup.BackupStorageBase;
+import org.zstack.storage.backup.sftp.SftpBackupStorageCommands;
 import org.zstack.storage.ceph.*;
 import org.zstack.storage.ceph.CephMonBase.PingResult;
 import org.zstack.utils.CollectionUtils;
@@ -241,12 +242,183 @@ public class CephBackupStorageBase extends BackupStorageBase {
         public String monAddr;
     }
 
+    public static class GetImagesMetaDataCommand extends AgentCommand {
+        private String backupStoragePath;
+
+        public String getBackupStoragePath() {
+            return backupStoragePath;
+        }
+
+        public void setBackupStoragePath(String backupStoragePath) {
+            this.backupStoragePath = backupStoragePath;
+        }
+    }
+
+    public static class GetImagesMetaDataRsp extends AgentResponse {
+        private String imagesMetaData;
+
+        public String getImagesMetaData() {
+            return imagesMetaData;
+        }
+
+        public void setImagesMetaData(String imagesMetaData) {
+            this.imagesMetaData = imagesMetaData;
+        }
+    }
+
+    public static class CheckImageMetaDataFileExistCmd extends SftpBackupStorageCommands.AgentCommand {
+        private String backupStoragePath;
+
+        public String getBackupStoragePath() {
+            return backupStoragePath;
+        }
+
+        public void setBackupStoragePath(String backupStoragePath) {
+            this.backupStoragePath = backupStoragePath;
+        }
+    }
+
+    public static class CheckImageMetaDataFileExistRsp extends SftpBackupStorageCommands.AgentResponse {
+        private String backupStorageMetaFileName;
+        private Boolean exist;
+
+        public Boolean getExist() {
+            return exist;
+        }
+
+        public void setExist(Boolean exist) {
+            this.exist = exist;
+        }
+
+        public String getBackupStorageMetaFileName() {
+            return backupStorageMetaFileName;
+        }
+
+        public void setBackupStorageMetaFileName(String backupStorageMetaFileName) {
+            this.backupStorageMetaFileName = backupStorageMetaFileName;
+        }
+    }
+
+    public static class GenerateImageMetaDataFileCmd extends SftpBackupStorageCommands.AgentCommand {
+        private String backupStoragePath;
+
+        public String getBackupStoragePath() {
+            return backupStoragePath;
+        }
+
+        public void setBackupStoragePath(String backupStoragePath) {
+            this.backupStoragePath = backupStoragePath;
+        }
+    }
+
+    public static class GenerateImageMetaDataFileRsp extends SftpBackupStorageCommands.AgentResponse {
+        private String backupStorageMetaFileName;
+
+        public String getBackupStorageMetaFileName() {
+            return backupStorageMetaFileName;
+        }
+
+        public void setBackupStorageMetaFileName(String backupStorageMetaFileName) {
+            this.backupStorageMetaFileName = backupStorageMetaFileName;
+        }
+    }
+
+    public static class DumpImageInfoToMetaDataFileCmd extends SftpBackupStorageCommands.AgentCommand {
+        private String backupStoragePath;
+        private String imageMetaData;
+        private boolean dumpAllMetaData;
+
+        public boolean isDumpAllMetaData() {
+            return dumpAllMetaData;
+        }
+
+        public void setDumpAllMetaData(boolean dumpAllMetaData) {
+            this.dumpAllMetaData = dumpAllMetaData;
+        }
+
+        public String getBackupStoragePath() {
+            return backupStoragePath;
+        }
+
+        public void setBackupStoragePath(String backupStoragePath) {
+            this.backupStoragePath = backupStoragePath;
+        }
+
+        public String getImageMetaData() {
+            return imageMetaData;
+        }
+
+        public void setImageMetaData(String imageMetaData) {
+            this.imageMetaData = imageMetaData;
+        }
+    }
+
+    public static class DumpImageInfoToMetaDataFileRsp extends SftpBackupStorageCommands.AgentResponse {
+    }
+
+    public static class DeleteImageInfoFromMetaDataFileCmd extends SftpBackupStorageCommands.AgentCommand {
+        private String imageUuid;
+        private String imageBackupStorageUuid;
+        private String backupStoragePath;
+
+        public String getBackupStoragePath() {
+            return backupStoragePath;
+        }
+
+        public void setBackupStoragePath(String backupStoragePath) {
+            this.backupStoragePath = backupStoragePath;
+        }
+
+        public String getImageBackupStorageUuid() {
+            return imageBackupStorageUuid;
+        }
+
+        public void setImageBackupStorageUuid(String imageBackupStorageUuid) {
+            this.imageBackupStorageUuid = imageBackupStorageUuid;
+        }
+
+        public String getImageUuid() {
+            return imageUuid;
+        }
+
+        public void setImageUuid(String imageUuid) {
+            this.imageUuid = imageUuid;
+        }
+    }
+
+    public static class DeleteImageInfoFromMetaDataFileRsp extends SftpBackupStorageCommands.AgentResponse {
+        private Integer ret;
+        private String out;
+
+        public Integer getRet() {
+            return ret;
+        }
+
+        public void setRet(Integer ret) {
+            this.ret = ret;
+        }
+
+        public String getOut() {
+            return out;
+        }
+
+        public void setOut(String out) {
+            this.out = out;
+        }
+    }
+
+
     public static final String INIT_PATH = "/ceph/backupstorage/init";
     public static final String DOWNLOAD_IMAGE_PATH = "/ceph/backupstorage/image/download";
     public static final String DELETE_IMAGE_PATH = "/ceph/backupstorage/image/delete";
     public static final String GET_IMAGE_SIZE_PATH = "/ceph/backupstorage/image/getsize";
     public static final String PING_PATH = "/ceph/backupstorage/ping";
     public static final String GET_FACTS = "/ceph/backupstorage/facts";
+    public static final String GENERATE_IMAGE_METADATA_FILE = "/ceph/backupstorage/generateimagemetadatafile";
+    public static final String CHECK_IMAGE_METADATA_FILE_EXIST = "/ceph/backupstorage/checkimagemetadatafileexist";
+    public static final String DUMP_IMAGE_METADATA_TO_FILE = "/ceph/backupstorage/dumpimagemetadatatofile";
+    public static final String GET_IMAGES_METADATA = "/ceph/backupstorage/getimagesmetadata";
+    public static final String DELETE_IMAGES_METADATA = "/ceph/backupstorage/deleteimagesmetadata";
 
     protected String makeImageInstallPath(String imageUuid) {
         return String.format("ceph://%s/%s", getSelf().getPoolName(), imageUuid);

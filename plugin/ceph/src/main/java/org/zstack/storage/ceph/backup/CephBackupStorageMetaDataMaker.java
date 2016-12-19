@@ -1,8 +1,7 @@
-package org.zstack.storage.backup.sftp;
+package org.zstack.storage.ceph.backup;
 
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.web.util.UriComponentsBuilder;
-import org.zstack.core.CoreGlobalProperty;
+import org.springframework.transaction.annotation.Transactional;
 import org.zstack.core.db.DatabaseFacade;
 import org.zstack.core.db.SimpleQuery;
 import org.zstack.core.errorcode.ErrorFacade;
@@ -14,12 +13,12 @@ import org.zstack.header.core.workflow.FlowTrigger;
 import org.zstack.header.core.workflow.NoRollbackFlow;
 import org.zstack.header.errorcode.ErrorCode;
 import org.zstack.header.errorcode.SysErrors;
-import org.zstack.header.exception.CloudRuntimeException;
 import org.zstack.header.image.*;
 import org.zstack.header.rest.JsonAsyncRESTCallback;
 import org.zstack.header.rest.RESTFacade;
 import org.zstack.header.storage.backup.AddBackupStorageExtensionPoint;
 import org.zstack.header.storage.backup.AddBackupStorageStruct;
+import org.zstack.storage.ceph.CephConstants;
 import org.zstack.utils.DebugUtils;
 import org.zstack.utils.Utils;
 import org.zstack.utils.gson.JSONObjectUtil;
@@ -33,8 +32,9 @@ import java.util.Map;
 /**
  * Created by Mei Lei <meilei007@gmail.com> on 11/3/16.
  */
-public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, AddBackupStorageExtensionPoint, ExpungeImageExtensionPoint {
-    private static final CLogger logger = Utils.getLogger(SftpBackupStorageMetaDataMaker.class);
+public class CephBackupStorageMetaDataMaker implements AddImageExtensionPoint, AddBackupStorageExtensionPoint, ExpungeImageExtensionPoint {
+    private static final CLogger logger = Utils.getLogger(CephBackupStorageMetaDataMaker.class);
+
     @Autowired
     protected RESTFacade restf;
     @Autowired
@@ -42,21 +42,8 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
     @Autowired
     private ErrorFacade errf;
 
-    private String buildUrl(String subPath, String hostName) {
-        UriComponentsBuilder ub = UriComponentsBuilder.newInstance();
-        ub.scheme(SftpBackupStorageGlobalProperty.AGENT_URL_SCHEME);
-        if (CoreGlobalProperty.UNIT_TEST_ON) {
-            ub.host("localhost");
-        } else {
-            ub.host(hostName);
-        }
-
-        ub.port(SftpBackupStorageGlobalProperty.AGENT_PORT);
-        if (!"".equals(SftpBackupStorageGlobalProperty.AGENT_URL_ROOT_PATH)) {
-            ub.path(SftpBackupStorageGlobalProperty.AGENT_URL_ROOT_PATH);
-        }
-        ub.path(subPath);
-        return ub.build().toUriString();
+    private String buildUrl( String hostName, Integer monPort,String subPath) {
+        return String.format("http://%s:%s%s", hostName, monPort, subPath);
     }
 
     private String getAllImageInventories(ImageInventory img) {
@@ -76,14 +63,23 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
     }
 
 
+    private String getBackupStorageUuidFromImageInventory(ImageInventory img) {
+        SimpleQuery<ImageBackupStorageRefVO> q = dbf.createQuery(ImageBackupStorageRefVO.class);
+        q.select(ImageBackupStorageRefVO_.backupStorageUuid);
+        q.add(ImageBackupStorageRefVO_.imageUuid, SimpleQuery.Op.EQ, img.getUuid());
+        String backupStorageUuid = q.findValue();
+        DebugUtils.Assert(backupStorageUuid != null, String.format("cannot find backup storage for image [uuid:%s]", img.getUuid()));
+        return backupStorageUuid;
+    }
+
     private void restoreImagesBackupStorageMetadataToDatabase(String imagesMetadata, String backupStorageUuid) {
-        List<ImageVO> imageVOs = new ArrayList<ImageVO>();
+        List<ImageVO>  imageVOs = new ArrayList<ImageVO>();
         List<ImageBackupStorageRefVO> backupStorageRefVOs = new ArrayList<ImageBackupStorageRefVO>();
-        String[] metadatas = imagesMetadata.split("\n");
-        for (String metadata : metadatas) {
+        String[] metadatas =  imagesMetadata.split("\n");
+        for ( String metadata : metadatas) {
             if (metadata.contains("backupStorageRefs")) {
                 ImageInventory imageInventory = JSONObjectUtil.toObject(metadata, ImageInventory.class);
-                for (ImageBackupStorageRefInventory ref : imageInventory.getBackupStorageRefs()) {
+                for ( ImageBackupStorageRefInventory ref : imageInventory.getBackupStorageRefs()) {
                     ImageBackupStorageRefVO backupStorageRefVO = new ImageBackupStorageRefVO();
                     backupStorageRefVO.setStatus(ImageStatus.valueOf(ref.getStatus()));
                     backupStorageRefVO.setInstallPath(ref.getInstallPath());
@@ -119,49 +115,42 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
         dbf.persistCollection(backupStorageRefVOs);
     }
 
-
-    private String getBsUrlFromImageInventory(ImageInventory img) {
-        SimpleQuery<ImageBackupStorageRefVO> q = dbf.createQuery(ImageBackupStorageRefVO.class);
-        q.select(ImageBackupStorageRefVO_.backupStorageUuid);
-        q.add(ImageBackupStorageRefVO_.imageUuid, SimpleQuery.Op.EQ, img.getUuid());
-        List<String> bsUuids = q.listValue();
-        if (bsUuids.isEmpty()) {
-            return null;
-        }
-        String bsUuid = bsUuids.get(0);
-
-        SimpleQuery<SftpBackupStorageVO> q2 = dbf.createQuery(SftpBackupStorageVO.class);
-        q.select(SftpBackupStorageVO_.url);
-        q.add(SftpBackupStorageVO_.uuid, SimpleQuery.Op.EQ, bsUuid);
-        List<SftpBackupStorageVO> urls = q2.listValue();
-        if (urls.isEmpty()) {
-            return null;
-        }
-        SftpBackupStorageVO bsVO = urls.get(0);
-        return bsVO.getUrl();
+    private String getHostnameFromBackupStorage(CephBackupStorageInventory inv) {
+        SimpleQuery<CephBackupStorageMonVO> q = dbf.createQuery(CephBackupStorageMonVO.class);
+        q.select(CephBackupStorageMonVO_.hostname);
+        q.add(CephBackupStorageMonVO_.backupStorageUuid, SimpleQuery.Op.EQ, inv.getUuid());
+        CephBackupStorageMonVO cephMonVO = q.find();
+        DebugUtils.Assert(cephMonVO != null, String.format("cannot find hostName for ceph backup storage [uuid:%s]", inv.getUuid()));
+        return cephMonVO.getHostname();
     }
 
+    private Integer getMonPortFromBackupStorage(CephBackupStorageInventory inv) {
+        SimpleQuery<CephBackupStorageMonVO> q = dbf.createQuery(CephBackupStorageMonVO.class);
+        q.select(CephBackupStorageMonVO_.monPort);
+        q.add(CephBackupStorageMonVO_.backupStorageUuid, SimpleQuery.Op.EQ, inv.getUuid());
+        CephBackupStorageMonVO cephMonVO = q.find();
+        DebugUtils.Assert(cephMonVO != null, String.format("cannot find port for ceph backup storage [uuid:%s]", inv.getUuid()));
+        return cephMonVO.getMonPort();
+    }
+
+    @Transactional
     private String getHostNameFromImageInventory(ImageInventory img) {
-        SimpleQuery<ImageBackupStorageRefVO> q = dbf.createQuery(ImageBackupStorageRefVO.class);
-        q.select(ImageBackupStorageRefVO_.backupStorageUuid);
-        q.add(ImageBackupStorageRefVO_.imageUuid, SimpleQuery.Op.EQ, img.getUuid());
-        List<String> bsUuids = q.listValue();
-        if (bsUuids.isEmpty()) {
-            throw new CloudRuntimeException("Didn't find any available backup storage");
-        }
-        String bsUuid = bsUuids.get(0);
-
-        SimpleQuery<SftpBackupStorageVO> q2 = dbf.createQuery(SftpBackupStorageVO.class);
-        q.select(SftpBackupStorageVO_.hostname);
-        q.add(SftpBackupStorageVO_.uuid, SimpleQuery.Op.EQ, bsUuid);
-        List<SftpBackupStorageVO> hostNames = q2.listValue();
-        if (hostNames.isEmpty()) {
-            throw new CloudRuntimeException("Didn't find any available hostname");
-        }
-        SftpBackupStorageVO bsVO = hostNames.get(0);
-        return bsVO.getHostname();
+        String sql="select mon.hostname from CephBackupStorageMonVO mon, ImageBackupStorageRefVO ref where " +
+                "ref.imageUuid= :uuid and ref.backupStorageUuid = mon.backupStorageUuid";
+        TypedQuery<String> q = dbf.getEntityManager().createQuery(sql, String.class);
+        q.setParameter("uuid", img.getUuid());
+        return q.getSingleResult();
     }
 
+    private Integer getMonPortFromImageInventory(ImageInventory img) {
+        String sql="select mon.monPort from CephBackupStorageMonVO mon, ImageBackupStorageRefVO ref where " +
+                "ref.imageUuid= :uuid and ref.backupStorageUuid = mon.backupStorageUuid";
+        TypedQuery<Integer> q = dbf.getEntityManager().createQuery(sql, Integer.class);
+        q.setParameter("uuid", img.getUuid());
+        return q.getSingleResult();
+    }
+
+    @Transactional
     private String getBackupStorageTypeFromImageInventory(ImageInventory img) {
         String sql = "select bs.type from BackupStorageVO bs, ImageBackupStorageRefVO refVo where  " +
                 "bs.uuid = refVo.backupStorageUuid and refVo.imageUuid = :uuid";
@@ -172,18 +161,9 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
         return type;
     }
 
-    private String getBackupStorageUuidFromImageInventory(ImageInventory img) {
-        SimpleQuery<ImageBackupStorageRefVO> q = dbf.createQuery(ImageBackupStorageRefVO.class);
-        q.select(ImageBackupStorageRefVO_.backupStorageUuid);
-        q.add(ImageBackupStorageRefVO_.imageUuid, SimpleQuery.Op.EQ, img.getUuid());
-        String backupStorageUuid = q.findValue();
-        DebugUtils.Assert(backupStorageUuid != null, String.format("cannot find backup storage for image [uuid:%s]", img.getUuid()));
-        return backupStorageUuid;
-    }
-
-    protected void dumpImagesBackupStorageInfoToMetaDataFile(ImageInventory img, boolean allImagesInfo, String bsUrl, String hostName) {
+    protected  void dumpImagesBackupStorageInfoToMetaDataFile(ImageInventory img, boolean allImagesInfo, String bsUrl, String hostName ) {
         logger.debug("dump all images info to meta data file");
-        SftpBackupStorageCommands.DumpImageInfoToMetaDataFileCmd dumpCmd = new SftpBackupStorageCommands.DumpImageInfoToMetaDataFileCmd();
+        CephBackupStorageBase.DumpImageInfoToMetaDataFileCmd dumpCmd = new CephBackupStorageBase.DumpImageInfoToMetaDataFileCmd();
         String metaData;
         if (allImagesInfo) {
             metaData = getAllImageInventories(img);
@@ -192,23 +172,22 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
         }
         dumpCmd.setImageMetaData(metaData);
         dumpCmd.setDumpAllMetaData(allImagesInfo);
-        if (bsUrl != null) {
+        if ( bsUrl != null) {
             dumpCmd.setBackupStoragePath(bsUrl);
-        } else {
-            dumpCmd.setBackupStoragePath(getBsUrlFromImageInventory(img));
         }
-        if (hostName == null || hostName.isEmpty()) {
-            hostName = getHostNameFromImageInventory(img);
+        if (hostName ==  null || hostName.isEmpty()) {
+           hostName = getHostNameFromImageInventory(img);
         }
-        restf.asyncJsonPost(buildUrl(SftpBackupStorageConstant.DUMP_IMAGE_METADATA_TO_FILE, hostName), dumpCmd,
-                new JsonAsyncRESTCallback<SftpBackupStorageCommands.DumpImageInfoToMetaDataFileRsp>() {
+        Integer monPort = getMonPortFromImageInventory(img);
+        restf.asyncJsonPost(buildUrl(hostName, monPort, CephBackupStorageBase.DUMP_IMAGE_METADATA_TO_FILE), dumpCmd,
+                new JsonAsyncRESTCallback<CephBackupStorageBase.DumpImageInfoToMetaDataFileRsp >() {
                     @Override
                     public void fail(ErrorCode err) {
                         logger.error("Dump image metadata failed" + err.toString());
                     }
 
                     @Override
-                    public void success(SftpBackupStorageCommands.DumpImageInfoToMetaDataFileRsp rsp) {
+                    public void success(CephBackupStorageBase.DumpImageInfoToMetaDataFileRsp rsp) {
                         if (!rsp.isSuccess()) {
                             logger.error("Dump image metadata failed");
                         } else {
@@ -217,8 +196,8 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
                     }
 
                     @Override
-                    public Class<SftpBackupStorageCommands.DumpImageInfoToMetaDataFileRsp> getReturnClass() {
-                        return SftpBackupStorageCommands.DumpImageInfoToMetaDataFileRsp.class;
+                    public Class<CephBackupStorageBase.DumpImageInfoToMetaDataFileRsp> getReturnClass() {
+                        return CephBackupStorageBase.DumpImageInfoToMetaDataFileRsp.class;
                     }
                 });
     }
@@ -235,16 +214,17 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
 
     @Override
     public void afterAddImage(ImageInventory img) {
-        if (!getBackupStorageTypeFromImageInventory(img).equals(SftpBackupStorageConstant.SFTP_BACKUP_STORAGE_TYPE)) {
+        if (!getBackupStorageTypeFromImageInventory(img).equals(CephConstants.CEPH_BACKUP_STORAGE_TYPE)) {
             return;
         }
+        String hostName = getHostNameFromImageInventory(img);
+        Integer monPort = getMonPortFromImageInventory(img);
 
         FlowChain chain = FlowChainBuilder.newShareFlowChain();
 
-        chain.setName("add-image-metadata-to-backupStorage-file");
+        chain.setName("add-image-metadata-to-ceph-backupStorage-file");
         chain.then(new ShareFlow() {
             boolean metaDataExist = false;
-
             @Override
             public void setup() {
                 flow(new NoRollbackFlow() {
@@ -252,10 +232,10 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
 
                     @Override
                     public void run(FlowTrigger trigger, Map data) {
-                        SftpBackupStorageCommands.CheckImageMetaDataFileExistCmd cmd = new SftpBackupStorageCommands.CheckImageMetaDataFileExistCmd();
-                        cmd.setBackupStoragePath(getBsUrlFromImageInventory(img));
-                        restf.asyncJsonPost(buildUrl(SftpBackupStorageConstant.CHECK_IMAGE_METADATA_FILE_EXIST, getHostNameFromImageInventory(img)), cmd,
-                                new JsonAsyncRESTCallback<SftpBackupStorageCommands.CheckImageMetaDataFileExistRsp>() {
+                        CephBackupStorageBase.CheckImageMetaDataFileExistCmd cmd = new CephBackupStorageBase.CheckImageMetaDataFileExistCmd();
+                        cmd.setBackupStoragePath(CephBackupStorageMonBase.META_DATA_PATH);
+                        restf.asyncJsonPost(buildUrl(hostName, monPort, CephBackupStorageBase.CHECK_IMAGE_METADATA_FILE_EXIST), cmd,
+                                new JsonAsyncRESTCallback<CephBackupStorageBase.CheckImageMetaDataFileExistRsp>() {
                                     @Override
                                     public void fail(ErrorCode err) {
                                         logger.error("Check image metadata file exist failed" + err.toString());
@@ -263,7 +243,7 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
                                     }
 
                                     @Override
-                                    public void success(SftpBackupStorageCommands.CheckImageMetaDataFileExistRsp rsp) {
+                                    public void success(CephBackupStorageBase.CheckImageMetaDataFileExistRsp rsp) {
                                         if (!rsp.isSuccess()) {
                                             logger.error(String.format("Check image metadata file: %s failed", rsp.getBackupStorageMetaFileName()));
                                             ErrorCode ec = errf.instantiateErrorCode(
@@ -285,8 +265,8 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
                                     }
 
                                     @Override
-                                    public Class<SftpBackupStorageCommands.CheckImageMetaDataFileExistRsp> getReturnClass() {
-                                        return SftpBackupStorageCommands.CheckImageMetaDataFileExistRsp.class;
+                                    public Class<CephBackupStorageBase.CheckImageMetaDataFileExistRsp> getReturnClass() {
+                                        return CephBackupStorageBase.CheckImageMetaDataFileExistRsp.class;
                                     }
                                 });
                     }
@@ -300,17 +280,16 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
                     public void run(FlowTrigger trigger, Map data) {
 
                         if (!metaDataExist) {
-                            SftpBackupStorageCommands.GenerateImageMetaDataFileCmd generateCmd = new SftpBackupStorageCommands.GenerateImageMetaDataFileCmd();
-                            generateCmd.setBackupStoragePath(getBsUrlFromImageInventory(img));
-                            restf.asyncJsonPost(buildUrl(SftpBackupStorageConstant.GENERATE_IMAGE_METADATA_FILE, getHostNameFromImageInventory(img)), generateCmd,
-                                    new JsonAsyncRESTCallback<SftpBackupStorageCommands.GenerateImageMetaDataFileRsp>() {
+                            CephBackupStorageBase.GenerateImageMetaDataFileCmd generateCmd = new CephBackupStorageBase.GenerateImageMetaDataFileCmd();
+                            restf.asyncJsonPost(buildUrl(hostName, monPort,CephBackupStorageBase.GENERATE_IMAGE_METADATA_FILE), generateCmd,
+                                    new JsonAsyncRESTCallback<CephBackupStorageBase.GenerateImageMetaDataFileRsp>() {
                                         @Override
                                         public void fail(ErrorCode err) {
                                             logger.error("Create image metadata file failed" + err.toString());
                                         }
 
                                         @Override
-                                        public void success(SftpBackupStorageCommands.GenerateImageMetaDataFileRsp rsp) {
+                                        public void success(CephBackupStorageBase.GenerateImageMetaDataFileRsp rsp) {
                                             if (!rsp.isSuccess()) {
                                                 ErrorCode ec = errf.instantiateErrorCode(
                                                         SysErrors.OPERATION_ERROR,
@@ -324,8 +303,8 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
                                         }
 
                                         @Override
-                                        public Class<SftpBackupStorageCommands.GenerateImageMetaDataFileRsp> getReturnClass() {
-                                            return SftpBackupStorageCommands.GenerateImageMetaDataFileRsp.class;
+                                        public Class<CephBackupStorageBase.GenerateImageMetaDataFileRsp> getReturnClass() {
+                                            return CephBackupStorageBase.GenerateImageMetaDataFileRsp.class;
                                         }
                                     });
 
@@ -348,7 +327,7 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
 
             }
 
-        }).start();
+            }).start();
     }
 
     @Override
@@ -360,30 +339,30 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
     public void preAddBackupStorage(AddBackupStorageStruct backupStorage) {
 
     }
-
     @Override
     public void beforeAddBackupStorage(AddBackupStorageStruct backupStorage) {
 
     }
-
     @Override
     public void afterAddBackupStorage(AddBackupStorageStruct backupStorage) {
-        if (!( backupStorage.getBackupStorgeType().equals(SftpBackupStorageConstant.SFTP_BACKUP_STORAGE_TYPE) && backupStorage.getImportImages())) {
+        if (!(backupStorage.getBackupStorgeType().equals(CephConstants.CEPH_BACKUP_STORAGE_TYPE) && backupStorage.getImportImages())) {
             return;
         }
-        SftpBackupStorageInventory inv = (SftpBackupStorageInventory) backupStorage.getBackupStorageInventory();
-        logger.debug("Starting to import images metadata");
-        SftpBackupStorageCommands.GetImagesMetaDataCmd cmd = new SftpBackupStorageCommands.GetImagesMetaDataCmd();
-        cmd.setBackupStoragePath(inv.getUrl());
-        restf.asyncJsonPost(buildUrl(SftpBackupStorageConstant.GET_IMAGES_METADATA, inv.getHostname()), cmd,
-                new JsonAsyncRESTCallback<SftpBackupStorageCommands.GetImagesMetaDataRsp>() {
+        CephBackupStorageInventory inv = (CephBackupStorageInventory) backupStorage.getBackupStorageInventory();
+        String hostName = getHostnameFromBackupStorage(inv);
+        Integer monPort = getMonPortFromBackupStorage(inv);
+        logger.debug("Starting to import ceph images metadata");
+        CephBackupStorageBase.GetImagesMetaDataCommand cmd = new CephBackupStorageBase.GetImagesMetaDataCommand();
+        cmd.setBackupStoragePath(CephBackupStorageMonBase.META_DATA_PATH);
+        restf.asyncJsonPost(buildUrl(hostName, monPort, CephBackupStorageBase.GET_IMAGES_METADATA), cmd,
+                new JsonAsyncRESTCallback<CephBackupStorageBase.GetImagesMetaDataRsp>() {
                     @Override
                     public void fail(ErrorCode err) {
                         logger.error("Check image metadata file exist failed" + err.toString());
                     }
 
                     @Override
-                    public void success(SftpBackupStorageCommands.GetImagesMetaDataRsp rsp) {
+                    public void success(CephBackupStorageBase.GetImagesMetaDataRsp rsp) {
                         if (!rsp.isSuccess()) {
                             logger.error(String.format("Get images metadata: %s failed", rsp.getImagesMetaData()));
                         } else {
@@ -393,12 +372,11 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
                     }
 
                     @Override
-                    public Class<SftpBackupStorageCommands.GetImagesMetaDataRsp> getReturnClass() {
-                        return SftpBackupStorageCommands.GetImagesMetaDataRsp.class;
+                    public Class<CephBackupStorageBase.GetImagesMetaDataRsp> getReturnClass() {
+                        return CephBackupStorageBase.GetImagesMetaDataRsp.class;
                     }
                 });
     }
-
     public void failedToAddBackupStorage(AddBackupStorageStruct backupStorage, ErrorCode err) {
 
     }
@@ -412,17 +390,17 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
     }
 
     public void afterExpungeImage(ImageInventory img, String backupStorageUuid) {
-        if (!getBackupStorageTypeFromImageInventory(img).equals(SftpBackupStorageConstant.SFTP_BACKUP_STORAGE_TYPE)) {
+        if (!getBackupStorageTypeFromImageInventory(img).equals(CephConstants.CEPH_BACKUP_STORAGE_TYPE)) {
             return;
         }
         FlowChain chain = FlowChainBuilder.newShareFlowChain();
 
-        chain.setName("delete-image-info-from-metadata-file");
+        chain.setName("delete-image-info-from-ceph-metadata-file");
         String hostName = getHostNameFromImageInventory(img);
-        String bsUrl = getBsUrlFromImageInventory(img);
+        Integer monPort = getMonPortFromImageInventory(img);
+        String bsUrl = CephBackupStorageMonBase.META_DATA_PATH ;
         chain.then(new ShareFlow() {
             boolean metaDataExist = false;
-
             @Override
             public void setup() {
                 flow(new NoRollbackFlow() {
@@ -430,10 +408,10 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
 
                     @Override
                     public void run(FlowTrigger trigger, Map data) {
-                        SftpBackupStorageCommands.CheckImageMetaDataFileExistCmd cmd = new SftpBackupStorageCommands.CheckImageMetaDataFileExistCmd();
+                        CephBackupStorageBase.CheckImageMetaDataFileExistCmd cmd = new CephBackupStorageBase.CheckImageMetaDataFileExistCmd();
                         cmd.setBackupStoragePath(bsUrl);
-                        restf.asyncJsonPost(buildUrl(SftpBackupStorageConstant.CHECK_IMAGE_METADATA_FILE_EXIST, hostName), cmd,
-                                new JsonAsyncRESTCallback<SftpBackupStorageCommands.CheckImageMetaDataFileExistRsp>() {
+                        restf.asyncJsonPost(buildUrl(hostName, monPort, CephBackupStorageBase.CHECK_IMAGE_METADATA_FILE_EXIST), cmd,
+                                new JsonAsyncRESTCallback<CephBackupStorageBase.CheckImageMetaDataFileExistRsp>() {
                                     @Override
                                     public void fail(ErrorCode err) {
                                         logger.error("Check image metadata file exist failed" + err.toString());
@@ -441,7 +419,7 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
                                     }
 
                                     @Override
-                                    public void success(SftpBackupStorageCommands.CheckImageMetaDataFileExistRsp rsp) {
+                                    public void success(CephBackupStorageBase.CheckImageMetaDataFileExistRsp rsp) {
                                         if (!rsp.isSuccess()) {
                                             logger.error(String.format("Check image metadata file: %s failed", rsp.getBackupStorageMetaFileName()));
                                             ErrorCode ec = errf.instantiateErrorCode(
@@ -465,8 +443,8 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
                                     }
 
                                     @Override
-                                    public Class<SftpBackupStorageCommands.CheckImageMetaDataFileExistRsp> getReturnClass() {
-                                        return SftpBackupStorageCommands.CheckImageMetaDataFileExistRsp.class;
+                                    public Class<CephBackupStorageBase.CheckImageMetaDataFileExistRsp> getReturnClass() {
+                                        return CephBackupStorageBase.CheckImageMetaDataFileExistRsp.class;
                                     }
                                 });
                     }
@@ -478,19 +456,19 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
 
                     @Override
                     public void run(FlowTrigger trigger, Map data) {
-                        SftpBackupStorageCommands.DeleteImageInfoFromMetaDataFileCmd deleteCmd = new SftpBackupStorageCommands.DeleteImageInfoFromMetaDataFileCmd();
+                        CephBackupStorageBase.DeleteImageInfoFromMetaDataFileCmd deleteCmd = new CephBackupStorageBase.DeleteImageInfoFromMetaDataFileCmd();
                         deleteCmd.setImageUuid(img.getUuid());
                         deleteCmd.setImageBackupStorageUuid(backupStorageUuid);
                         deleteCmd.setBackupStoragePath(bsUrl);
-                        restf.asyncJsonPost(buildUrl(SftpBackupStorageConstant.DELETE_IMAGES_METADATA, hostName), deleteCmd,
-                                new JsonAsyncRESTCallback<SftpBackupStorageCommands.DeleteImageInfoFromMetaDataFileRsp>() {
+                        restf.asyncJsonPost(buildUrl(hostName, monPort, CephBackupStorageBase.DELETE_IMAGES_METADATA), deleteCmd,
+                                new JsonAsyncRESTCallback<CephBackupStorageBase.DeleteImageInfoFromMetaDataFileRsp>() {
                                     @Override
                                     public void fail(ErrorCode err) {
                                         logger.error("delete image metadata file failed" + err.toString());
                                     }
 
                                     @Override
-                                    public void success(SftpBackupStorageCommands.DeleteImageInfoFromMetaDataFileRsp rsp) {
+                                    public void success(CephBackupStorageBase.DeleteImageInfoFromMetaDataFileRsp rsp) {
                                         if (!rsp.isSuccess()) {
                                             ErrorCode ec = errf.instantiateErrorCode(
                                                     SysErrors.OPERATION_ERROR,
@@ -508,8 +486,8 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
                                     }
 
                                     @Override
-                                    public Class<SftpBackupStorageCommands.DeleteImageInfoFromMetaDataFileRsp> getReturnClass() {
-                                        return SftpBackupStorageCommands.DeleteImageInfoFromMetaDataFileRsp.class;
+                                    public Class<CephBackupStorageBase.DeleteImageInfoFromMetaDataFileRsp> getReturnClass() {
+                                        return CephBackupStorageBase.DeleteImageInfoFromMetaDataFileRsp.class;
                                     }
                                 });
 
