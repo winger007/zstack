@@ -19,6 +19,7 @@ import org.zstack.header.rest.RESTFacade;
 import org.zstack.header.storage.backup.AddBackupStorageExtensionPoint;
 import org.zstack.header.storage.backup.AddBackupStorageStruct;
 import org.zstack.storage.ceph.CephConstants;
+import org.zstack.storage.ceph.CephGlobalProperty;
 import org.zstack.utils.DebugUtils;
 import org.zstack.utils.Utils;
 import org.zstack.utils.gson.JSONObjectUtil;
@@ -178,7 +179,8 @@ public class CephBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
         if (hostName ==  null || hostName.isEmpty()) {
            hostName = getHostNameFromImageInventory(img);
         }
-        Integer monPort = getMonPortFromImageInventory(img);
+        //Integer monPort = getMonPortFromImageInventory(img);
+        Integer monPort = CephGlobalProperty.BACKUP_STORAGE_AGENT_PORT;
         restf.asyncJsonPost(buildUrl(hostName, monPort, CephBackupStorageBase.DUMP_IMAGE_METADATA_TO_FILE), dumpCmd,
                 new JsonAsyncRESTCallback<CephBackupStorageBase.DumpImageInfoToMetaDataFileRsp >() {
                     @Override
@@ -218,7 +220,8 @@ public class CephBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
             return;
         }
         String hostName = getHostNameFromImageInventory(img);
-        Integer monPort = getMonPortFromImageInventory(img);
+        //Integer monPort = getMonPortFromImageInventory(img);
+        Integer monPort = CephGlobalProperty.BACKUP_STORAGE_AGENT_PORT;
 
         FlowChain chain = FlowChainBuilder.newShareFlowChain();
 
@@ -350,7 +353,8 @@ public class CephBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
         }
         CephBackupStorageInventory inv = (CephBackupStorageInventory) backupStorage.getBackupStorageInventory();
         String hostName = getHostnameFromBackupStorage(inv);
-        Integer monPort = getMonPortFromBackupStorage(inv);
+        //Integer monPort = getMonPortFromBackupStorage(inv);
+        Integer monPort = CephGlobalProperty.BACKUP_STORAGE_AGENT_PORT;
         logger.debug("Starting to import ceph images metadata");
         CephBackupStorageBase.GetImagesMetaDataCommand cmd = new CephBackupStorageBase.GetImagesMetaDataCommand();
         cmd.setBackupStoragePath(CephBackupStorageMonBase.META_DATA_PATH);
@@ -397,7 +401,8 @@ public class CephBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
 
         chain.setName("delete-image-info-from-ceph-metadata-file");
         String hostName = getHostNameFromImageInventory(img);
-        Integer monPort = getMonPortFromImageInventory(img);
+        //Integer monPort = getMonPortFromImageInventory(img);
+        Integer monPort = CephGlobalProperty.BACKUP_STORAGE_AGENT_PORT;
         String bsUrl = CephBackupStorageMonBase.META_DATA_PATH ;
         chain.then(new ShareFlow() {
             boolean metaDataExist = false;
