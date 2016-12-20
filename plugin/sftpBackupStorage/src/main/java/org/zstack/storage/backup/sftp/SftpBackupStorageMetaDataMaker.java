@@ -1,6 +1,7 @@
 package org.zstack.storage.backup.sftp;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.util.UriComponentsBuilder;
 import org.zstack.core.CoreGlobalProperty;
 import org.zstack.core.db.DatabaseFacade;
@@ -59,6 +60,7 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
         return ub.build().toUriString();
     }
 
+    @Transactional
     private String getAllImageInventories(ImageInventory img) {
         String allImageInventories = null;
         String sql = "select * from ImageVO img, ImageBackupStorageRefVO ref where ref.backupStorageUuid = :bsUuid";
@@ -162,13 +164,13 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
         return bsVO.getHostname();
     }
 
+    @Transactional
     private String getBackupStorageTypeFromImageInventory(ImageInventory img) {
         String sql = "select bs.type from BackupStorageVO bs, ImageBackupStorageRefVO refVo where  " +
                 "bs.uuid = refVo.backupStorageUuid and refVo.imageUuid = :uuid";
         TypedQuery<String> q = dbf.getEntityManager().createQuery(sql, String.class);
         q.setParameter("uuid", img.getUuid());
         String type = q.getSingleResult();
-        logger.debug(String.format("meilei: %s", type));
         return type;
     }
 

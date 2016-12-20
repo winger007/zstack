@@ -47,6 +47,7 @@ public class CephBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
         return String.format("http://%s:%s%s", hostName, monPort, subPath);
     }
 
+    @Transactional
     private String getAllImageInventories(ImageInventory img) {
         String allImageInventories = null;
         String sql = "select * from ImageVO img, ImageBackupStorageRefVO ref where ref.backupStorageUuid = :bsUuid";
@@ -143,6 +144,7 @@ public class CephBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
         return q.getSingleResult();
     }
 
+    @Transactional
     private Integer getMonPortFromImageInventory(ImageInventory img) {
         String sql="select mon.monPort from CephBackupStorageMonVO mon, ImageBackupStorageRefVO ref where " +
                 "ref.imageUuid= :uuid and ref.backupStorageUuid = mon.backupStorageUuid";
@@ -284,6 +286,7 @@ public class CephBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
 
                         if (!metaDataExist) {
                             CephBackupStorageBase.GenerateImageMetaDataFileCmd generateCmd = new CephBackupStorageBase.GenerateImageMetaDataFileCmd();
+                            generateCmd.setBackupStoragePath(CephBackupStorageMonBase.META_DATA_PATH);
                             restf.asyncJsonPost(buildUrl(hostName, monPort,CephBackupStorageBase.GENERATE_IMAGE_METADATA_FILE), generateCmd,
                                     new JsonAsyncRESTCallback<CephBackupStorageBase.GenerateImageMetaDataFileRsp>() {
                                         @Override
