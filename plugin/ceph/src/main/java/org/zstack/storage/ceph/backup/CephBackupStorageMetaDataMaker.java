@@ -2,22 +2,20 @@ package org.zstack.storage.ceph.backup;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
+import org.zstack.core.cloudbus.CloudBus;
+import org.zstack.core.cloudbus.CloudBusCallBack;
 import org.zstack.core.db.DatabaseFacade;
 import org.zstack.core.db.SimpleQuery;
 import org.zstack.core.errorcode.ErrorFacade;
-import org.zstack.core.workflow.FlowChainBuilder;
-import org.zstack.core.workflow.ShareFlow;
-import org.zstack.header.core.workflow.FlowChain;
-import org.zstack.header.core.workflow.FlowDoneHandler;
-import org.zstack.header.core.workflow.FlowTrigger;
-import org.zstack.header.core.workflow.NoRollbackFlow;
 import org.zstack.header.errorcode.ErrorCode;
-import org.zstack.header.errorcode.SysErrors;
 import org.zstack.header.image.*;
+import org.zstack.header.message.MessageReply;
 import org.zstack.header.rest.JsonAsyncRESTCallback;
 import org.zstack.header.rest.RESTFacade;
 import org.zstack.header.storage.backup.AddBackupStorageExtensionPoint;
 import org.zstack.header.storage.backup.AddBackupStorageStruct;
+import org.zstack.header.storage.backup.BackupStorageConstant;
+import org.zstack.header.storage.backup.BakeImageMetadataMsg;
 import org.zstack.storage.ceph.CephConstants;
 import org.zstack.storage.ceph.CephGlobalProperty;
 import org.zstack.utils.DebugUtils;
@@ -28,7 +26,6 @@ import org.zstack.utils.logging.CLogger;
 import javax.persistence.TypedQuery;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Created by Mei Lei <meilei007@gmail.com> on 11/3/16.
@@ -42,17 +39,23 @@ public class CephBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
     private DatabaseFacade dbf;
     @Autowired
     private ErrorFacade errf;
+    @Autowired
+    private CloudBus bus;
 
-    private String buildUrl( String hostName, Integer monPort,String subPath) {
+    protected  String buildUrl( String hostName, Integer monPort,String subPath) {
         return String.format("http://%s:%s%s", hostName, monPort, subPath);
     }
 
     @Transactional
-    private String getAllImageInventories(ImageInventory img) {
+    protected String getAllImageInventories(ImageInventory img, String bsUuid) {
         String allImageInventories = null;
-        String sql = "select * from ImageVO img, ImageBackupStorageRefVO ref where ref.backupStorageUuid = :bsUuid";
+        String sql = "select img from ImageVO img, ImageBackupStorageRefVO ref where ref.backupStorageUuid = :bsUuid";
         TypedQuery<ImageVO> q = dbf.getEntityManager().createQuery(sql, ImageVO.class);
-        q.setParameter("bsUuid", getBackupStorageUuidFromImageInventory(img));
+        if (img != null ) {
+            q.setParameter("bsUuid", getBackupStorageUuidFromImageInventory(img));
+        } else {
+            q.setParameter("bsUuid", bsUuid);
+        }
         List<ImageVO> allImageVO = q.getResultList();
         for (ImageVO imageVO : allImageVO) {
             if (allImageInventories != null) {
@@ -65,7 +68,7 @@ public class CephBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
     }
 
 
-    private String getBackupStorageUuidFromImageInventory(ImageInventory img) {
+    protected  String getBackupStorageUuidFromImageInventory(ImageInventory img) {
         SimpleQuery<ImageBackupStorageRefVO> q = dbf.createQuery(ImageBackupStorageRefVO.class);
         q.select(ImageBackupStorageRefVO_.backupStorageUuid);
         q.add(ImageBackupStorageRefVO_.imageUuid, SimpleQuery.Op.EQ, img.getUuid());
@@ -74,7 +77,7 @@ public class CephBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
         return backupStorageUuid;
     }
 
-    private void restoreImagesBackupStorageMetadataToDatabase(String imagesMetadata, String backupStorageUuid) {
+    protected  void restoreImagesBackupStorageMetadataToDatabase(String imagesMetadata, String backupStorageUuid) {
         List<ImageVO>  imageVOs = new ArrayList<ImageVO>();
         List<ImageBackupStorageRefVO> backupStorageRefVOs = new ArrayList<ImageBackupStorageRefVO>();
         String[] metadatas =  imagesMetadata.split("\n");
@@ -117,26 +120,20 @@ public class CephBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
         dbf.persistCollection(backupStorageRefVOs);
     }
 
-    private String getHostnameFromBackupStorage(CephBackupStorageInventory inv) {
+    protected String getHostnameFromBackupStorage(CephBackupStorageInventory inv) {
+        logger.debug(String.format("meilei uuid is %s", inv.getUuid()));
         SimpleQuery<CephBackupStorageMonVO> q = dbf.createQuery(CephBackupStorageMonVO.class);
         q.select(CephBackupStorageMonVO_.hostname);
         q.add(CephBackupStorageMonVO_.backupStorageUuid, SimpleQuery.Op.EQ, inv.getUuid());
-        CephBackupStorageMonVO cephMonVO = q.find();
-        DebugUtils.Assert(cephMonVO != null, String.format("cannot find hostName for ceph backup storage [uuid:%s]", inv.getUuid()));
-        return cephMonVO.getHostname();
-    }
-
-    private Integer getMonPortFromBackupStorage(CephBackupStorageInventory inv) {
-        SimpleQuery<CephBackupStorageMonVO> q = dbf.createQuery(CephBackupStorageMonVO.class);
-        q.select(CephBackupStorageMonVO_.monPort);
-        q.add(CephBackupStorageMonVO_.backupStorageUuid, SimpleQuery.Op.EQ, inv.getUuid());
-        CephBackupStorageMonVO cephMonVO = q.find();
-        DebugUtils.Assert(cephMonVO != null, String.format("cannot find port for ceph backup storage [uuid:%s]", inv.getUuid()));
-        return cephMonVO.getMonPort();
+        String hostName = q.findValue();
+        logger.debug(String.format("meilei host name is %s", hostName));
+        DebugUtils.Assert(hostName!= null, String.format("cannot find hostName for ceph backup storage [uuid:%s]", inv.getUuid()));
+        //return cephMonVO.getHostname();
+        return hostName;
     }
 
     @Transactional
-    private String getHostNameFromImageInventory(ImageInventory img) {
+    protected  String getHostNameFromImageInventory(ImageInventory img) {
         String sql="select mon.hostname from CephBackupStorageMonVO mon, ImageBackupStorageRefVO ref where " +
                 "ref.imageUuid= :uuid and ref.backupStorageUuid = mon.backupStorageUuid";
         TypedQuery<String> q = dbf.getEntityManager().createQuery(sql, String.class);
@@ -145,7 +142,7 @@ public class CephBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
     }
 
     @Transactional
-    private Integer getMonPortFromImageInventory(ImageInventory img) {
+    protected  Integer getMonPortFromImageInventory(ImageInventory img) {
         String sql="select mon.monPort from CephBackupStorageMonVO mon, ImageBackupStorageRefVO ref where " +
                 "ref.imageUuid= :uuid and ref.backupStorageUuid = mon.backupStorageUuid";
         TypedQuery<Integer> q = dbf.getEntityManager().createQuery(sql, Integer.class);
@@ -154,7 +151,7 @@ public class CephBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
     }
 
     @Transactional
-    private String getBackupStorageTypeFromImageInventory(ImageInventory img) {
+    protected  String getBackupStorageTypeFromImageInventory(ImageInventory img) {
         String sql = "select bs.type from BackupStorageVO bs, ImageBackupStorageRefVO refVo where  " +
                 "bs.uuid = refVo.backupStorageUuid and refVo.imageUuid = :uuid";
         TypedQuery<String> q = dbf.getEntityManager().createQuery(sql, String.class);
@@ -164,24 +161,21 @@ public class CephBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
         return type;
     }
 
-    protected  void dumpImagesBackupStorageInfoToMetaDataFile(ImageInventory img, boolean allImagesInfo, String bsUrl, String hostName ) {
-        logger.debug("dump all images info to meta data file");
+    protected  void dumpImagesBackupStorageInfoToMetaDataFile(ImageInventory img, boolean allImagesInfo,  String hostName, String bsUuid ) {
+        logger.debug("dump images info to meta data file");
         CephBackupStorageBase.DumpImageInfoToMetaDataFileCmd dumpCmd = new CephBackupStorageBase.DumpImageInfoToMetaDataFileCmd();
         String metaData;
         if (allImagesInfo) {
-            metaData = getAllImageInventories(img);
+            metaData = getAllImageInventories(null, bsUuid);
         } else {
             metaData = JSONObjectUtil.toJsonString(img);
         }
         dumpCmd.setImageMetaData(metaData);
         dumpCmd.setDumpAllMetaData(allImagesInfo);
-        if ( bsUrl != null) {
-            dumpCmd.setBackupStoragePath(bsUrl);
-        }
+        dumpCmd.setBackupStorageUuid(bsUuid);
         if (hostName ==  null || hostName.isEmpty()) {
            hostName = getHostNameFromImageInventory(img);
         }
-        //Integer monPort = getMonPortFromImageInventory(img);
         Integer monPort = CephGlobalProperty.BACKUP_STORAGE_AGENT_PORT;
         restf.asyncJsonPost(buildUrl(hostName, monPort, CephBackupStorageBase.DUMP_IMAGE_METADATA_TO_FILE), dumpCmd,
                 new JsonAsyncRESTCallback<CephBackupStorageBase.DumpImageInfoToMetaDataFileRsp >() {
@@ -221,119 +215,23 @@ public class CephBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
         if (!getBackupStorageTypeFromImageInventory(img).equals(CephConstants.CEPH_BACKUP_STORAGE_TYPE)) {
             return;
         }
-        String hostName = getHostNameFromImageInventory(img);
-        //Integer monPort = getMonPortFromImageInventory(img);
-        Integer monPort = CephGlobalProperty.BACKUP_STORAGE_AGENT_PORT;
-
-        FlowChain chain = FlowChainBuilder.newShareFlowChain();
-
-        chain.setName("add-image-metadata-to-ceph-backupStorage-file");
-        chain.then(new ShareFlow() {
-            boolean metaDataExist = false;
+        BakeImageMetadataMsg msg = new BakeImageMetadataMsg();
+        msg.setImg(img);
+        msg.setOperation(CephConstants.AFTER_ADD_IMAGE);
+        msg.setBackupStorageUuid(getBackupStorageUuidFromImageInventory(img));
+        bus.makeLocalServiceId(msg, BackupStorageConstant.SERVICE_ID);
+        bus.send(msg, new CloudBusCallBack() {
             @Override
-            public void setup() {
-                flow(new NoRollbackFlow() {
-                    String __name__ = "check-image-metadata-file-exist";
-
-                    @Override
-                    public void run(FlowTrigger trigger, Map data) {
-                        CephBackupStorageBase.CheckImageMetaDataFileExistCmd cmd = new CephBackupStorageBase.CheckImageMetaDataFileExistCmd();
-                        cmd.setBackupStoragePath(CephBackupStorageMonBase.META_DATA_PATH);
-                        restf.asyncJsonPost(buildUrl(hostName, monPort, CephBackupStorageBase.CHECK_IMAGE_METADATA_FILE_EXIST), cmd,
-                                new JsonAsyncRESTCallback<CephBackupStorageBase.CheckImageMetaDataFileExistRsp>() {
-                                    @Override
-                                    public void fail(ErrorCode err) {
-                                        logger.error("Check image metadata file exist failed" + err.toString());
-                                        trigger.fail(err);
-                                    }
-
-                                    @Override
-                                    public void success(CephBackupStorageBase.CheckImageMetaDataFileExistRsp rsp) {
-                                        if (!rsp.isSuccess()) {
-                                            logger.error(String.format("Check image metadata file: %s failed", rsp.getBackupStorageMetaFileName()));
-                                            ErrorCode ec = errf.instantiateErrorCode(
-                                                    SysErrors.OPERATION_ERROR,
-                                                    String.format("Check image metadata file: %s failed", rsp.getBackupStorageMetaFileName())
-                                            );
-                                            trigger.fail(ec);
-                                        } else {
-                                            if (!rsp.getExist()) {
-                                                logger.info(String.format("Image metadata file %s is not exist", rsp.getBackupStorageMetaFileName()));
-                                                // call generate and dump all image info to yaml
-                                                trigger.next();
-                                            } else {
-                                                logger.info(String.format("Image metadata file %s exist", rsp.getBackupStorageMetaFileName()));
-                                                metaDataExist = true;
-                                                trigger.next();
-                                            }
-                                        }
-                                    }
-
-                                    @Override
-                                    public Class<CephBackupStorageBase.CheckImageMetaDataFileExistRsp> getReturnClass() {
-                                        return CephBackupStorageBase.CheckImageMetaDataFileExistRsp.class;
-                                    }
-                                });
-                    }
-                });
-
-
-                flow(new NoRollbackFlow() {
-                    String __name__ = "create-image-metadata-file";
-
-                    @Override
-                    public void run(FlowTrigger trigger, Map data) {
-
-                        if (!metaDataExist) {
-                            CephBackupStorageBase.GenerateImageMetaDataFileCmd generateCmd = new CephBackupStorageBase.GenerateImageMetaDataFileCmd();
-                            generateCmd.setBackupStoragePath(CephBackupStorageMonBase.META_DATA_PATH);
-                            restf.asyncJsonPost(buildUrl(hostName, monPort,CephBackupStorageBase.GENERATE_IMAGE_METADATA_FILE), generateCmd,
-                                    new JsonAsyncRESTCallback<CephBackupStorageBase.GenerateImageMetaDataFileRsp>() {
-                                        @Override
-                                        public void fail(ErrorCode err) {
-                                            logger.error("Create image metadata file failed" + err.toString());
-                                        }
-
-                                        @Override
-                                        public void success(CephBackupStorageBase.GenerateImageMetaDataFileRsp rsp) {
-                                            if (!rsp.isSuccess()) {
-                                                ErrorCode ec = errf.instantiateErrorCode(
-                                                        SysErrors.OPERATION_ERROR,
-                                                        String.format("Create image metadata file : %s failed", rsp.getBackupStorageMetaFileName()));
-                                                trigger.fail(ec);
-                                            } else {
-                                                logger.info("Create image metadata file successfully");
-                                                dumpImagesBackupStorageInfoToMetaDataFile(img, true, null, null);
-                                                trigger.next();
-                                            }
-                                        }
-
-                                        @Override
-                                        public Class<CephBackupStorageBase.GenerateImageMetaDataFileRsp> getReturnClass() {
-                                            return CephBackupStorageBase.GenerateImageMetaDataFileRsp.class;
-                                        }
-                                    });
-
-                        } else {
-                            dumpImagesBackupStorageInfoToMetaDataFile(img, false, null, null);
-                            trigger.next();
-                        }
-
-
-                    }
-                });
-
-
-                done(new FlowDoneHandler() {
-                    @Override
-                    public void handle(Map data) {
-
-                    }
-                });
-
+            public void run(MessageReply reply) {
+                if (reply.isSuccess()) {
+                    logger.debug("add backup storage extension finish");
+                } else {
+                    reply.setError(reply.getError());
+                }
+                bus.reply(msg, reply);
             }
+        });
 
-            }).start();
     }
 
     @Override
@@ -354,36 +252,24 @@ public class CephBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
         if (!(backupStorage.getBackupStorgeType().equals(CephConstants.CEPH_BACKUP_STORAGE_TYPE) && backupStorage.getImportImages())) {
             return;
         }
-        CephBackupStorageInventory inv = (CephBackupStorageInventory) backupStorage.getBackupStorageInventory();
-        String hostName = getHostnameFromBackupStorage(inv);
-        //Integer monPort = getMonPortFromBackupStorage(inv);
-        Integer monPort = CephGlobalProperty.BACKUP_STORAGE_AGENT_PORT;
         logger.debug("Starting to import ceph images metadata");
-        CephBackupStorageBase.GetImagesMetaDataCommand cmd = new CephBackupStorageBase.GetImagesMetaDataCommand();
-        cmd.setBackupStoragePath(CephBackupStorageMonBase.META_DATA_PATH);
-        restf.asyncJsonPost(buildUrl(hostName, monPort, CephBackupStorageBase.GET_IMAGES_METADATA), cmd,
-                new JsonAsyncRESTCallback<CephBackupStorageBase.GetImagesMetaDataRsp>() {
-                    @Override
-                    public void fail(ErrorCode err) {
-                        logger.error("Check image metadata file exist failed" + err.toString());
-                    }
-
-                    @Override
-                    public void success(CephBackupStorageBase.GetImagesMetaDataRsp rsp) {
-                        if (!rsp.isSuccess()) {
-                            logger.error(String.format("Get images metadata: %s failed", rsp.getImagesMetaData()));
-                        } else {
-                            logger.info(String.format("Get images metadata: %s success", rsp.getImagesMetaData()));
-                            restoreImagesBackupStorageMetadataToDatabase(rsp.getImagesMetaData(), backupStorage.getBackupStorageInventory().getUuid());
-                        }
-                    }
-
-                    @Override
-                    public Class<CephBackupStorageBase.GetImagesMetaDataRsp> getReturnClass() {
-                        return CephBackupStorageBase.GetImagesMetaDataRsp.class;
-                    }
-                });
+        BakeImageMetadataMsg msg = new BakeImageMetadataMsg();
+        msg.setBackupStorageUuid(backupStorage.getBackupStorageInventory().getUuid());
+        msg.setOperation(CephConstants.AFTER_ADD_BACKUPSTORAGE);
+        bus.makeLocalServiceId(msg, BackupStorageConstant.SERVICE_ID);
+        bus.send(msg, new CloudBusCallBack() {
+            @Override
+            public void run(MessageReply reply) {
+                if (reply.isSuccess()) {
+                   logger.debug("add backup storage extension finish");
+                } else {
+                    reply.setError(reply.getError());
+                }
+                bus.reply(msg, reply);
+            }
+        });
     }
+
     public void failedToAddBackupStorage(AddBackupStorageStruct backupStorage, ErrorCode err) {
 
     }
@@ -400,118 +286,24 @@ public class CephBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
         if (!getBackupStorageTypeFromImageInventory(img).equals(CephConstants.CEPH_BACKUP_STORAGE_TYPE)) {
             return;
         }
-        FlowChain chain = FlowChainBuilder.newShareFlowChain();
 
-        chain.setName("delete-image-info-from-ceph-metadata-file");
-        String hostName = getHostNameFromImageInventory(img);
-        //Integer monPort = getMonPortFromImageInventory(img);
-        Integer monPort = CephGlobalProperty.BACKUP_STORAGE_AGENT_PORT;
-        String bsUrl = CephBackupStorageMonBase.META_DATA_PATH ;
-        chain.then(new ShareFlow() {
-            boolean metaDataExist = false;
+        BakeImageMetadataMsg msg = new BakeImageMetadataMsg();
+        msg.setImg(img);
+        msg.setBackupStorageUuid(getBackupStorageUuidFromImageInventory(img));
+        msg.setOperation(CephConstants.AFTER_EXPUNGE_IMAGE);
+        bus.makeLocalServiceId(msg, BackupStorageConstant.SERVICE_ID);
+        bus.send(msg, new CloudBusCallBack() {
             @Override
-            public void setup() {
-                flow(new NoRollbackFlow() {
-                    String __name__ = "check-image-metadata-file-exist";
-
-                    @Override
-                    public void run(FlowTrigger trigger, Map data) {
-                        CephBackupStorageBase.CheckImageMetaDataFileExistCmd cmd = new CephBackupStorageBase.CheckImageMetaDataFileExistCmd();
-                        cmd.setBackupStoragePath(bsUrl);
-                        restf.asyncJsonPost(buildUrl(hostName, monPort, CephBackupStorageBase.CHECK_IMAGE_METADATA_FILE_EXIST), cmd,
-                                new JsonAsyncRESTCallback<CephBackupStorageBase.CheckImageMetaDataFileExistRsp>() {
-                                    @Override
-                                    public void fail(ErrorCode err) {
-                                        logger.error("Check image metadata file exist failed" + err.toString());
-                                        trigger.fail(err);
-                                    }
-
-                                    @Override
-                                    public void success(CephBackupStorageBase.CheckImageMetaDataFileExistRsp rsp) {
-                                        if (!rsp.isSuccess()) {
-                                            logger.error(String.format("Check image metadata file: %s failed", rsp.getBackupStorageMetaFileName()));
-                                            ErrorCode ec = errf.instantiateErrorCode(
-                                                    SysErrors.OPERATION_ERROR,
-                                                    String.format("Check image metadata file: %s failed", rsp.getBackupStorageMetaFileName())
-                                            );
-                                            trigger.fail(ec);
-                                        } else {
-                                            if (!rsp.getExist()) {
-                                                logger.info(String.format("Image metadata file %s is not exist", rsp.getBackupStorageMetaFileName()));
-                                                ErrorCode ec = errf.instantiateErrorCode(
-                                                        SysErrors.OPERATION_ERROR,
-                                                        String.format("Image metadata file: %s is not exist", rsp.getBackupStorageMetaFileName())
-                                                );
-                                                trigger.fail(ec);
-                                            } else {
-                                                logger.info(String.format("Image metadata file %s exist", rsp.getBackupStorageMetaFileName()));
-                                                trigger.next();
-                                            }
-                                        }
-                                    }
-
-                                    @Override
-                                    public Class<CephBackupStorageBase.CheckImageMetaDataFileExistRsp> getReturnClass() {
-                                        return CephBackupStorageBase.CheckImageMetaDataFileExistRsp.class;
-                                    }
-                                });
-                    }
-                });
-
-
-                flow(new NoRollbackFlow() {
-                    String __name__ = "delete-image-info";
-
-                    @Override
-                    public void run(FlowTrigger trigger, Map data) {
-                        CephBackupStorageBase.DeleteImageInfoFromMetaDataFileCmd deleteCmd = new CephBackupStorageBase.DeleteImageInfoFromMetaDataFileCmd();
-                        deleteCmd.setImageUuid(img.getUuid());
-                        deleteCmd.setImageBackupStorageUuid(backupStorageUuid);
-                        deleteCmd.setBackupStoragePath(bsUrl);
-                        restf.asyncJsonPost(buildUrl(hostName, monPort, CephBackupStorageBase.DELETE_IMAGES_METADATA), deleteCmd,
-                                new JsonAsyncRESTCallback<CephBackupStorageBase.DeleteImageInfoFromMetaDataFileRsp>() {
-                                    @Override
-                                    public void fail(ErrorCode err) {
-                                        logger.error("delete image metadata file failed" + err.toString());
-                                    }
-
-                                    @Override
-                                    public void success(CephBackupStorageBase.DeleteImageInfoFromMetaDataFileRsp rsp) {
-                                        if (!rsp.isSuccess()) {
-                                            ErrorCode ec = errf.instantiateErrorCode(
-                                                    SysErrors.OPERATION_ERROR,
-                                                    String.format("delete image metadata file failed: %s", rsp.getError()));
-                                            trigger.fail(ec);
-                                        } else {
-                                            if (rsp.getRet() != 0) {
-                                                logger.info(String.format("delete image %s metadata failed : %s", img.getUuid(), rsp.getOut()));
-                                                trigger.next();
-                                            } else {
-                                                logger.info(String.format("delete image %s metadata successfully", img.getUuid()));
-                                                trigger.next();
-                                            }
-                                        }
-                                    }
-
-                                    @Override
-                                    public Class<CephBackupStorageBase.DeleteImageInfoFromMetaDataFileRsp> getReturnClass() {
-                                        return CephBackupStorageBase.DeleteImageInfoFromMetaDataFileRsp.class;
-                                    }
-                                });
-
-
-                    }
-                });
-
-                done(new FlowDoneHandler() {
-                    @Override
-                    public void handle(Map data) {
-
-                    }
-                });
-
+            public void run(MessageReply reply) {
+                if (reply.isSuccess()) {
+                    logger.debug("add backup storage extension finish");
+                } else {
+                    reply.setError(reply.getError());
+                }
+                bus.reply(msg, reply);
             }
-        }).start();
+        });
+
     }
 
     public void failedToExpungeImage(ImageInventory img, ErrorCode err) {

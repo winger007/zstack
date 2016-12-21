@@ -43,5 +43,9 @@
     </zstack:plugin>
   </bean>
 
+  <bean id="SftpBackupStorageDumpMetadataInfo"
+    class="org.zstack.storage.backup.sftp.SftpBackupStorageDumpMetadataInfo">
+  </bean>
+
 
 </beans>

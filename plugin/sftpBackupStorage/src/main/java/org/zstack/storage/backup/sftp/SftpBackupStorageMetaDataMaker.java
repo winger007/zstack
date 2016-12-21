@@ -42,6 +42,8 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
     private DatabaseFacade dbf;
     @Autowired
     private ErrorFacade errf;
+    @Autowired
+    private SftpBackupStorageDumpMetadataInfo dumpInfo;
 
     private String buildUrl(String subPath, String hostName) {
         UriComponentsBuilder ub = UriComponentsBuilder.newInstance();
@@ -61,11 +63,17 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
     }
 
     @Transactional
-    private String getAllImageInventories(ImageInventory img) {
+    private String getAllImageInventories(SftpBackupStorageDumpMetadataInfo dumpInfo) {
+        TypedQuery<ImageVO> q;
         String allImageInventories = null;
-        String sql = "select * from ImageVO img, ImageBackupStorageRefVO ref where ref.backupStorageUuid = :bsUuid";
-        TypedQuery<ImageVO> q = dbf.getEntityManager().createQuery(sql, ImageVO.class);
-        q.setParameter("bsUuid", getBackupStorageUuidFromImageInventory(img));
+        ImageInventory img = dumpInfo.getImg();
+        String sql = "select img from ImageVO img, ImageBackupStorageRefVO ref where ref.backupStorageUuid = :bsUuid";
+        q = dbf.getEntityManager().createQuery(sql, ImageVO.class);
+        if (dumpInfo.getImg() != null ) {
+            q.setParameter("bsUuid", getBackupStorageUuidFromImageInventory(img));
+        } else {
+            q.setParameter("bsUuid", dumpInfo.getBackupStorageUuid());
+        }
         List<ImageVO> allImageVO = q.getResultList();
         for (ImageVO imageVO : allImageVO) {
             if (allImageInventories != null) {
@@ -171,6 +179,7 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
         TypedQuery<String> q = dbf.getEntityManager().createQuery(sql, String.class);
         q.setParameter("uuid", img.getUuid());
         String type = q.getSingleResult();
+        DebugUtils.Assert(type != null, String.format("cannot find backupStorage type for image [uuid:%s]", img.getUuid()));
         return type;
     }
 
@@ -183,12 +192,16 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
         return backupStorageUuid;
     }
 
-    protected void dumpImagesBackupStorageInfoToMetaDataFile(ImageInventory img, boolean allImagesInfo, String bsUrl, String hostName) {
+    protected void dumpImagesBackupStorageInfoToMetaDataFile(SftpBackupStorageDumpMetadataInfo dumpInfo) {
         logger.debug("dump all images info to meta data file");
+        boolean allImagesInfo = dumpInfo.getDumpAllInfo();
+        ImageInventory img = dumpInfo.getImg();
+        String bsUrl = dumpInfo.getBackupStorageUrl();
+        String hostName = dumpInfo.getBackupStorageHostname();
         SftpBackupStorageCommands.DumpImageInfoToMetaDataFileCmd dumpCmd = new SftpBackupStorageCommands.DumpImageInfoToMetaDataFileCmd();
         String metaData;
         if (allImagesInfo) {
-            metaData = getAllImageInventories(img);
+            metaData = getAllImageInventories(dumpInfo);
         } else {
             metaData = JSONObjectUtil.toJsonString(img);
         }
@@ -320,7 +333,10 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
                                                 trigger.fail(ec);
                                             } else {
                                                 logger.info("Create image metadata file successfully");
-                                                dumpImagesBackupStorageInfoToMetaDataFile(img, true, null, null);
+                                                SftpBackupStorageDumpMetadataInfo dumpInfo = new SftpBackupStorageDumpMetadataInfo();
+                                                dumpInfo.setImg(img);
+                                                dumpInfo.setDumpAllInfo(true);
+                                                dumpImagesBackupStorageInfoToMetaDataFile(dumpInfo);
                                                 trigger.next();
                                             }
                                         }
@@ -332,7 +348,10 @@ public class SftpBackupStorageMetaDataMaker implements AddImageExtensionPoint, A
                                     });
 
                         } else {
-                            dumpImagesBackupStorageInfoToMetaDataFile(img, false, null, null);
+                            SftpBackupStorageDumpMetadataInfo dumpInfo = new SftpBackupStorageDumpMetadataInfo();
+                            dumpInfo.setDumpAllInfo(false);
+                            dumpInfo.setImg(img);
+                            dumpImagesBackupStorageInfoToMetaDataFile(dumpInfo);
                             trigger.next();
                         }
 
