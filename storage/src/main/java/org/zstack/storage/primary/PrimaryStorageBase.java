@@ -203,68 +203,40 @@ public abstract class PrimaryStorageBase extends AbstractPrimaryStorage {
         }
     }
 
-
     private void checkPrimaryStatus(Message msg) {
-        if (msg instanceof PrimaryStorageReportPhysicalCapacityMsg) {
-            handle((PrimaryStorageReportPhysicalCapacityMsg) msg);
-        } else if (msg instanceof InstantiateVolumeOnPrimaryStorageMsg) {
+        if (msg instanceof InstantiateVolumeOnPrimaryStorageMsg) {
             forbidOperationWhenPrimaryStorageMaintenance(self.getState().toString());
             forbidOperationWhenPrimaryStorageDisable(self.getState().toString());
-            handle((InstantiateVolumeOnPrimaryStorageMsg) msg);
         } else if (msg instanceof DeleteVolumeOnPrimaryStorageMsg) {
             forbidOperationWhenPrimaryStorageMaintenance(self.getState().toString());
-            handle((DeleteVolumeOnPrimaryStorageMsg) msg);
         } else if (msg instanceof CreateTemplateFromVolumeOnPrimaryStorageMsg) {
             forbidOperationWhenPrimaryStorageDisable(self.getState().toString());
             forbidOperationWhenPrimaryStorageMaintenance(self.getState().toString());
-            handleBase((CreateTemplateFromVolumeOnPrimaryStorageMsg) msg);
         } else if (msg instanceof PrimaryStorageDeletionMsg) {
             forbidOperationWhenPrimaryStorageMaintenance(self.getState().toString());
             forbidOperationWhenPrimaryStorageDisable(self.getState().toString());
-            handle((PrimaryStorageDeletionMsg) msg);
-        } else if (msg instanceof DetachPrimaryStorageFromClusterMsg) {
-            handle((DetachPrimaryStorageFromClusterMsg) msg);
         } else if (msg instanceof DownloadDataVolumeToPrimaryStorageMsg) {
             forbidOperationWhenPrimaryStorageDisable(self.getState().toString());
             forbidOperationWhenPrimaryStorageMaintenance(self.getState().toString());
-            handleBase((DownloadDataVolumeToPrimaryStorageMsg) msg);
         } else if (msg instanceof DeleteBitsOnPrimaryStorageMsg) {
             forbidOperationWhenPrimaryStorageMaintenance(self.getState().toString());
-            handle((DeleteBitsOnPrimaryStorageMsg) msg);
-        } else if (msg instanceof ConnectPrimaryStorageMsg) {
-            handle((ConnectPrimaryStorageMsg) msg);
         } else if (msg instanceof DownloadIsoToPrimaryStorageMsg) {
             forbidOperationWhenPrimaryStorageDisable(self.getState().toString());
             forbidOperationWhenPrimaryStorageMaintenance(self.getState().toString());
-            handleBase((DownloadIsoToPrimaryStorageMsg) msg);
         } else if (msg instanceof DeleteIsoFromPrimaryStorageMsg) {
             forbidOperationWhenPrimaryStorageMaintenance(self.getState().toString());
-            handle((DeleteIsoFromPrimaryStorageMsg) msg);
         } else if (msg instanceof AskVolumeSnapshotCapabilityMsg) {
             forbidOperationWhenPrimaryStorageDisable(self.getState().toString());
             forbidOperationWhenPrimaryStorageMaintenance(self.getState().toString());
-            handle((AskVolumeSnapshotCapabilityMsg) msg);
-        } else if (msg instanceof SyncVolumeSizeOnPrimaryStorageMsg) {
-            handle((SyncVolumeSizeOnPrimaryStorageMsg) msg);
-        } else if (msg instanceof PingPrimaryStorageMsg) {
-            handle((PingPrimaryStorageMsg) msg);
-        } else if (msg instanceof ChangePrimaryStorageStatusMsg) {
-            handle((ChangePrimaryStorageStatusMsg) msg);
-        } else if (msg instanceof ReconnectPrimaryStorageMsg) {
-            handle((ReconnectPrimaryStorageMsg) msg);
         } else if (msg instanceof MergeVolumeSnapshotOnPrimaryStorageMsg) {
             forbidOperationWhenPrimaryStorageMaintenance(self.getState().toString());
-            handle((MergeVolumeSnapshotOnPrimaryStorageMsg) msg);
         } else if (msg instanceof DeleteSnapshotOnPrimaryStorageMsg) {
             forbidOperationWhenPrimaryStorageMaintenance(self.getState().toString());
-            handle((DeleteSnapshotOnPrimaryStorageMsg) msg);
         } else if (msg instanceof RevertVolumeFromSnapshotOnPrimaryStorageMsg) {
             forbidOperationWhenPrimaryStorageMaintenance(self.getState().toString());
-            handle((RevertVolumeFromSnapshotOnPrimaryStorageMsg) msg);
         } else if (msg instanceof ReInitRootVolumeFromTemplateOnPrimaryStorageMsg) {
             forbidOperationWhenPrimaryStorageMaintenance(self.getState().toString());
             forbidOperationWhenPrimaryStorageDisable(self.getState().toString());
-            handle((ReInitRootVolumeFromTemplateOnPrimaryStorageMsg) msg);
         } else {
             bus.dealWithUnknownMessage(msg);
         }
