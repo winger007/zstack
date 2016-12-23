@@ -44,7 +44,7 @@ public class HostPrimaryStorageAllocatorFlow extends AbstractHostAllocatorFlow {
             TypedQuery<HostVO> query = dbf.getEntityManager().createQuery(sql, HostVO.class);
             query.setParameter("uuids", huuids);
             query.setParameter("state", PrimaryStorageState.Enabled);
-            query.setParameter("state", PrimaryStorageState.Disabled);
+            query.setParameter("state1", PrimaryStorageState.Disabled);
             query.setParameter("status", PrimaryStorageStatus.Connected);
             return query.getResultList();
         }
